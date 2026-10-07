@@ -34,13 +34,14 @@ const LONGEST_SPOKEN = 900;
 
 /// The words a voice should read: no emojis, no asterisks around actions. Speaks the whole
 /// finished reply, and never starts a sentence it cannot finish.
-export function forSpeech(text: string): string {
+export function forSpeech(text: string, sing = false): string {
   const spoken = text
     .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}\u{20E3}]/gu, "")
     .replace(/\*/g, "")
-    .replace(/\s+/g, " ")
+    .replace(sing ? /[^\S\n]+/g : /\s+/g, " ")
     .trim();
   if (!spoken) return "";
+  if (sing) return spoken.length > LONGEST_SPOKEN ? spoken.slice(0, LONGEST_SPOKEN).trim() : spoken;
   const parts = spoken.split(/(?<=[.!?])\s+/).filter(Boolean);
   const finished = parts.filter((part, index) => /[.!?]$/.test(part) || index === parts.length - 1);
   let out = finished.join(" ");
@@ -72,12 +73,17 @@ function speechProblem(service: "OpenAI" | "fish.audio", status: number, body: u
 
 /// One reply read aloud in the expert's voice: their fish.audio voice when they have one, OpenAI's
 /// voice with their speaking style otherwise. Returns the audio.
-export async function say(text: string, expert: Expert, settings: Settings, signal?: AbortSignal, laugh = false): Promise<Blob> {
-  const spoken = forSpeech(text);
+export async function say(text: string, expert: Expert, settings: Settings, signal?: AbortSignal, laugh = false, sing = false): Promise<Blob> {
+  const spoken = forSpeech(text, sing);
   if (!spoken) throw new BrainError("Nothing to read aloud.");
   const fish = fishVoice(expert, settings);
   const service = fish ? "fish.audio" : "OpenAI";
-  const line = laugh ? `[laughing] ${spoken}` : spoken;
+  const line = sing ? `[singing] ${spoken}` : laugh ? `[laughing] ${spoken}` : spoken;
+  const instructions = sing
+    ? `${expert.voice.style} Sing these lyrics as a short song with a clear melody. Do not speak them as prose.`
+    : laugh
+      ? `${expert.voice.style} Start with a short laugh, then speak.`
+      : expert.voice.style;
   try {
     const answer = fish
       ? await post({
@@ -90,7 +96,7 @@ export async function say(text: string, expert: Expert, settings: Settings, sign
       : await post({
           url: OPENAI_SPEECH,
           headers: { authorization: `Bearer ${settings.key}` },
-          json: { model: SPEECH_MODEL, voice: expert.voice.openai, input: spoken, instructions: laugh ? `${expert.voice.style} Start with a short laugh, then speak.` : expert.voice.style, response_format: "mp3" },
+          json: { model: SPEECH_MODEL, voice: expert.voice.openai, input: spoken, instructions, response_format: "mp3" },
           want: "blob",
           signal,
         });

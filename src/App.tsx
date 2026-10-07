@@ -3,7 +3,7 @@ import { byId, EXPERTS, type Expert } from "./experts";
 import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { emojiOf, setReaction } from "./reacts";
-import { feelings, note, reply, speakers, type Target } from "./room";
+import { feelings, note, reply, speakers, wantsSong, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
 import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
 
@@ -370,12 +370,12 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
 
   /// Reads a reply aloud after anything already playing. The audio is kept so a replay is free.
   /// Resolves when this line has finished playing, not when the file merely arrives.
-  const speak = (message: Message, use = settings, signal?: AbortSignal, laugh = false) => {
+  const speak = (message: Message, use = settings, signal?: AbortSignal, laugh = false, sing = false) => {
     const expert = byId(message.from);
     if (!expert) return Promise.resolve();
     let audio = spoken.current.get(message.id);
     if (!audio) {
-      audio = say(message.text, expert, use, signal, laugh);
+      audio = say(message.text, expert, use, signal, laugh, sing);
       spoken.current.set(message.id, audio);
       audio.catch((problem) => {
         spoken.current.delete(message.id);
@@ -525,7 +525,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         let playing = Promise.resolve();
         if (settings.speak && message.text !== "...") {
           setHeld((all) => new Set(all).add(message.id));
-          playing = speak(message, settings, controller.signal, laughed);
+          playing = speak(message, settings, controller.signal, laughed, wantsSong([...current].reverse().find((known) => known.from === "you")?.text ?? ""));
         }
         if (rest[0]) nextWrite = write(byId(rest[0])!);
         await playing;

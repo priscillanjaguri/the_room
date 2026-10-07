@@ -10,6 +10,7 @@ const SHORT_TOKENS = 500;
 const LONG_TOKENS = 800;
 
 const MORE = /\b(more|detail|details|explain|elaborate|expand|deeper|why\b|how come|break (it|that) down|go on|keep going|say more|tell me more|walk me through|examples?|step by step|what do you mean)\b/i;
+const SONG = /\b(sing|song|songs|sang|sung|rap|rapping|lullaby|karaoke|melody|verse|chorus|ballad|jingle|serenade)\b/i;
 
 /// Who a message goes to: the room decides, everyone, or one expert's id.
 export type Target = "auto" | "everyone" | string;
@@ -45,16 +46,34 @@ function lastAsk(messages: Message[]): string {
   return "";
 }
 
+/// The first expert who answered after QH's last message, if anyone has.
+function firstAfterAsk(messages: Message[]): Expert | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].from !== "you") continue;
+    for (let later = index + 1; later < messages.length; later++) {
+      const expert = byId(messages[later].from);
+      if (expert) return expert;
+    }
+    return;
+  }
+}
+
 /// QH asked for depth, so this turn can run long.
 export const wantsMore = (text: string) => MORE.test(text);
+
+/// QH asked them to sing, so the reply is lyrics, not a spoken refusal.
+export const wantsSong = (text: string) => SONG.test(text);
 
 function system(expert: Expert, settings: Settings, messages: Message[]): string {
   const others = EXPERTS.filter((one) => one.id !== expert.id)
     .map((one) => `${one.name} (${one.craft})`)
     .join(", ");
   const previous = lastSpeaker(messages.filter((message) => message.from !== expert.id));
+  const opener = firstAfterAsk(messages);
   const reacting = previous && messages.at(-1)?.from !== "you";
-  const deeper = wantsMore(lastAsk(messages));
+  const asked = lastAsk(messages);
+  const deeper = wantsMore(asked);
+  const song = wantsSong(asked);
   return [
     `You are ${expert.name}, whose craft is ${expert.craft}, in a private group chat called "The room" on ${you(settings)}'s phone.`,
     `Also in the room: ${others}. ${you(settings)} runs the meeting and makes the calls.`,
@@ -63,16 +82,20 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     settings.decided.trim() ? `The room's current note: ${settings.decided.trim()} If this records a decision, do not reopen it unless ${you(settings)} clearly wants to.` : "",
     "How to reply:",
     `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
-    "- Talk like a person in a room, not an essay. Short spoken sentences. No stacked clauses, no lists, no 'first... second...'.",
-    deeper
-      ? `- ${you(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
-      : `- One short sentence. Two if you must. Do not explain unless asked.`,
+    song
+      ? `- ${you(settings)} asked for a song. Actually sing. Write 4 to 8 short lyric lines in your voice, about what they asked. Do not refuse, do not say you cannot sing, do not explain that you are an AI. Plain lyrics only, one line per line.`
+      : "- Talk like a person in a room, not an essay. Short spoken sentences. No stacked clauses, no lists, no 'first... second...'.",
+    song
+      ? ""
+      : deeper
+        ? `- ${you(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
+        : `- One short sentence. Two if you must. Do not explain unless asked.`,
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
     reacting
-      ? `- The last person to speak was ${previous.name}. Talk to them by name. Agree, steal the point, or push back. Do not repeat what they just said, and do not give ${you(settings)} a second copy of the same advice.${deeper ? "" : " One line is enough."}`
+      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} You can answer ${previous.name}, pick up what ${you(settings)} originally asked, or do both. If an earlier point was the real one, talk to that. Do not only bounce off the last line, and do not give ${you(settings)} a second copy of the same advice.`
       : `- Answer ${you(settings)}. You can mention the others by name if you want them to come in.`,
   ]
     .filter(Boolean)
@@ -86,7 +109,11 @@ function clean(text: string, expert: Expert): string {
 }
 
 /// Hard cap so a long-winded reply cannot run past the spoken length we asked for.
-function cap(text: string, sentences: number): string {
+function cap(text: string, sentences: number, song = false): string {
+  if (song) {
+    const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+    return (lines.length <= sentences ? lines : lines.slice(0, sentences)).join("\n");
+  }
   const parts = text.split(/(?<=[.!?])\s+/).filter(Boolean);
   return (parts.length <= sentences ? parts : parts.slice(0, sentences)).join(" ").trim();
 }
@@ -118,11 +145,15 @@ export interface Said {
 /// One expert's reply to the thread so far, streamed through `onText`.
 export async function reply(expert: Expert, messages: Message[], settings: Settings, signal: AbortSignal, onText: (text: string) => void): Promise<Said> {
   const previous = lastSpeaker(messages);
-  const deeper = wantsMore(lastAsk(messages));
-  const longest = deeper ? 4 : 2;
-  const cue =
-    previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
-      ? `Now reply as ${expert.name} to ${previous.name}. Talk to them, not past them.${deeper ? " At most four short sentences." : " One short spoken sentence."}`
+  const opener = firstAfterAsk(messages);
+  const asked = lastAsk(messages);
+  const deeper = wantsMore(asked);
+  const song = wantsSong(asked);
+  const longest = song ? 8 : deeper ? 4 : 2;
+  const cue = song
+    ? `Now reply as ${expert.name}. Sing a short verse in character about what ${you(settings)} asked. Lyrics only.`
+    : previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
+      ? `Now reply as ${expert.name}. Last speaker: ${previous.name}.${opener && opener.id !== previous.id ? ` This round opened with ${opener.name}.` : ""} Original ask was from ${you(settings)}. You may answer any of them, or more than one.${deeper ? " At most four short sentences." : " One or two short spoken sentences."}`
       : `Now reply as ${expert.name}.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
   const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
   const text = await ask({
@@ -130,12 +161,12 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
     model: settings.model,
     system: system(expert, settings, messages),
     prompt,
-    maxTokens: deeper ? LONG_TOKENS : SHORT_TOKENS,
+    maxTokens: song || deeper ? LONG_TOKENS : SHORT_TOKENS,
     signal,
-    onText: (soFar) => onText(cap(shown(soFar, expert), longest)),
+    onText: (soFar) => onText(cap(shown(soFar, expert), longest, song)),
   });
   const peeled = peel(text, expert);
-  return { text: cap(peeled.text, longest), react: peeled.react };
+  return { text: cap(peeled.text, longest, song), react: peeled.react };
 }
 
 const FEEL = /\b(laugh|sad|up|down|party|none)\b/i;
