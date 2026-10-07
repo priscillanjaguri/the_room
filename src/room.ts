@@ -6,8 +6,8 @@ import type { Message, Settings } from "./store";
 const REMEMBERED = 40;
 /// Short replies; the limit also covers hidden reasoning.
 const SHORT_TOKENS = 500;
-/// Only when QH asks for more detail.
-const LONG_TOKENS = 1500;
+/// Only when QH asks for more detail. Four spoken sentences do not need more than this.
+const LONG_TOKENS = 800;
 
 const MORE = /\b(more|detail|details|explain|elaborate|expand|deeper|why\b|how come|break (it|that) down|go on|keep going|say more|tell me more|walk me through|examples?|step by step|what do you mean)\b/i;
 
@@ -63,9 +63,10 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     settings.decided.trim() ? `The room's current note: ${settings.decided.trim()} If this records a decision, do not reopen it unless ${you(settings)} clearly wants to.` : "",
     "How to reply:",
     `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
+    "- Talk like a person in a room, not an essay. Short spoken sentences. No stacked clauses, no lists, no 'first... second...'.",
     deeper
-      ? `- ${you(settings)} asked for more. Give a real answer: up to six short sentences, with the why. Still no speeches.`
-      : `- Default length: one or two short sentences. A third only if you must. Do not explain unless asked. If they want depth they will say so.`,
+      ? `- ${you(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
+      : `- One short sentence. Two if you must. Do not explain unless asked.`,
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
@@ -84,24 +85,32 @@ function clean(text: string, expert: Expert): string {
   return text.replace(prefix, "").trim();
 }
 
+/// Hard cap so a long-winded reply cannot run past the spoken length we asked for.
+function cap(text: string, sentences: number): string {
+  const parts = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return (parts.length <= sentences ? parts : parts.slice(0, sentences)).join(" ").trim();
+}
+
 /// One expert's reply to the thread so far, streamed through `onText`.
 export async function reply(expert: Expert, messages: Message[], settings: Settings, signal: AbortSignal, onText: (text: string) => void): Promise<string> {
   const previous = lastSpeaker(messages);
+  const deeper = wantsMore(lastAsk(messages));
+  const longest = deeper ? 4 : 2;
   const cue =
     previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
-      ? `Now reply as ${expert.name} to ${previous.name}. Talk to them, not past them.`
-      : `Now reply as ${expert.name}.`;
+      ? `Now reply as ${expert.name} to ${previous.name}. Talk to them, not past them.${deeper ? " At most four short sentences." : " One short spoken sentence."}`
+      : `Now reply as ${expert.name}.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
   const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
   const text = await ask({
     key: settings.key,
     model: settings.model,
     system: system(expert, settings, messages),
     prompt,
-    maxTokens: wantsMore(lastAsk(messages)) ? LONG_TOKENS : SHORT_TOKENS,
+    maxTokens: deeper ? LONG_TOKENS : SHORT_TOKENS,
     signal,
-    onText: (soFar) => onText(clean(soFar, expert)),
+    onText: (soFar) => onText(cap(clean(soFar, expert), longest)),
   });
-  return clean(text, expert);
+  return cap(clean(text, expert), longest);
 }
 
 function namesIn(text: string): string[] {
