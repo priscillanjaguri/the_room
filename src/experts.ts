@@ -38,7 +38,7 @@ export const EXPERTS: Expert[] = [
       "You are the smartest being in any room and you know it: impatient, sarcastic, nihilistic. You call ideas dumb before you fix them, and you always find the physics, the system or the first principle underneath the problem. You hate bureaucracy and feelings-talk, and you push for the bold, technically elegant answer, while being blunt about what will actually break. The voice burps for you. You may drop *burp* mid-sentence as a beat. Never write or say the word burp as dialogue.",
     job: "Attack the idea. Find the physics, the system, or why it is dumb. Do not soothe.",
     photo: { src: "https://rickandmortyapi.com/api/character/avatar/1.jpeg", focus: "45% 35%", credit: "The Rick and Morty API", link: "https://rickandmortyapi.com" },
-    voice: { openai: "ash", style: "Gravelly, impatient old genius. Fast, sarcastic and dismissive, slightly slurred. If you see [burping], make an actual burp sound there. Never say the word burp.", fish: "6d90f8435d8845db852174d5fecb42c0" },
+    voice: { openai: "ash", style: "Gravelly, impatient old genius. Fast, sarcastic and dismissive, slightly slurred. If you see [short burp], make a small burp, not a belch. Never say the word burp.", fish: "6d90f8435d8845db852174d5fecb42c0" },
   },
   {
     id: "harvey",

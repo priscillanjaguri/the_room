@@ -34,9 +34,9 @@ const LONGEST_SPOKEN = 900;
 
 /// The words a voice should read: no emojis, no asterisks around actions. Speaks the whole
 /// finished reply, and never starts a sentence it cannot finish.
-/// Turns a written *burp* into a sound cue, and never leaves the word to be read aloud.
+/// Turns a written *burp* into a small burp cue — not a belch, and never the spoken word.
 function withBurps(text: string): string {
-  return text.replace(/\[burping\]|\*burps?\*|\(burps?\)|\bburps?\b/gi, " [burping] ");
+  return text.replace(/\[(?:short |small )?burps?ing?\]|\*burps?\*|\(burps?\)|\bbelch(?:es|ed|ing)?\b|\bburps?\b/gi, " [short burp] ");
 }
 
 export function forSpeech(text: string, sing = false): string {
@@ -85,13 +85,13 @@ export async function say(text: string, expert: Expert, settings: Settings, sign
   const fish = fishVoice(expert, settings);
   const service = fish ? "fish.audio" : "OpenAI";
   const line = sing ? `[singing] ${spoken}` : laugh ? `[laughing] ${spoken}` : spoken;
-  const burp = /\[burping\]/.test(spoken);
+  const burp = /\[short burp\]/.test(spoken);
   const instructions = sing
     ? `${expert.voice.style} Sing these lyrics as a short song with a clear melody. Do not speak them as prose.`
     : laugh
-      ? `${expert.voice.style} Start with a short laugh, then speak.${burp ? " When you see [burping], make a real burp. Never say the word burp." : ""}`
+      ? `${expert.voice.style} Start with a short laugh, then speak.${burp ? " When you see [short burp], make a small burp, not a belch. Never say the word burp." : ""}`
       : burp
-        ? `${expert.voice.style} When you see [burping], make a real burp sound. Never say the word burp.`
+        ? `${expert.voice.style} When you see [short burp], make a small burp, not a belch. Never say the word burp.`
         : expert.voice.style;
   try {
     const answer = fish
