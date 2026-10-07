@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { byId, EXPERTS, type Expert } from "./experts";
 import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
+import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
 
@@ -14,10 +15,15 @@ const SUGGESTIONS = [
 
 const initials = (expert: Expert) => expert.name.split(" ").map((part) => part[0]).join("");
 
+/// The expert's picture over their initials, so the initials show while it loads or if it cannot.
 function Avatar({ expert, size = 34 }: { expert: Expert; size?: number }) {
+  const own = useContext(PhotosContext)[expert.id];
+  const src = own || expert.photo.src;
+  const [broken, setBroken] = useState("");
   return (
-    <span className="avatar" style={{ background: expert.colour, width: size, height: size, fontSize: size * 0.38 }} aria-hidden>
+    <span className="avatar" style={{ background: expert.colour, borderColor: expert.colour, width: size, height: size, fontSize: size * 0.38 }} aria-hidden>
       {initials(expert)}
+      {broken !== src && <img src={src} alt="" draggable={false} style={{ objectPosition: own ? "50% 50%" : expert.photo.focus }} onError={() => setBroken(src)} />}
     </span>
   );
 }
@@ -68,8 +74,29 @@ function Setup({ settings, onDone }: { settings: Settings; onDone: (settings: Se
   );
 }
 
-function SettingsPage({ settings, onSave, onClose, onClear }: { settings: Settings; onSave: (settings: Settings) => void; onClose: () => void; onClear: () => void }) {
+interface SettingsProps {
+  settings: Settings;
+  photos: Photos;
+  onSave: (settings: Settings) => void;
+  onClose: () => void;
+  onClear: () => void;
+  /// A picture from the phone for one expert, or null to go back to their own.
+  onPhoto: (id: string, photo: string | null) => void;
+}
+
+function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: SettingsProps) {
   const [draft, setDraft] = useState(settings);
+  const [photoError, setPhotoError] = useState("");
+
+  const choose = async (id: string, file: File | undefined) => {
+    if (!file) return;
+    setPhotoError("");
+    try {
+      onPhoto(id, await faceFrom(file));
+    } catch (problem) {
+      setPhotoError(reason(problem));
+    }
+  };
   const [shown, setShown] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
@@ -124,12 +151,32 @@ function SettingsPage({ settings, onSave, onClose, onClear }: { settings: Settin
         <div className="people">
           {EXPERTS.map((expert) => (
             <div key={expert.id} className="person">
-              <Avatar expert={expert} />
+              <Avatar expert={expert} size={48} />
               <div>
                 <b style={{ color: expert.colour }}>{expert.name}</b>
                 <span>{expert.craft}</span>
+                <div className="photo-actions">
+                  <label className="link">
+                    Change photo
+                    <input type="file" accept="image/*" hidden onChange={(event) => (void choose(expert.id, event.target.files?.[0]), (event.target.value = ""))} />
+                  </label>
+                  {photos[expert.id] && (
+                    <button className="link" onClick={() => onPhoto(expert.id, null)}>
+                      Use theirs
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
+          ))}
+        </div>
+        {photoError && <p className="error-text">{photoError}</p>}
+        <div className="credits">
+          <span>Pictures</span>
+          {EXPERTS.map((expert) => (
+            <a key={expert.id} href={expert.photo.link}>
+              {expert.short}: {expert.photo.credit}
+            </a>
           ))}
         </div>
         <hr />
@@ -147,6 +194,25 @@ interface Live {
 }
 
 export default function App() {
+  const [photos, setPhotos] = useState<Photos>(loadPhotos);
+
+  const photo = (id: string, picture: string | null) =>
+    setPhotos((all) => {
+      const next = { ...all };
+      if (picture) next[id] = picture;
+      else delete next[id];
+      savePhotos(next);
+      return next;
+    });
+
+  return (
+    <PhotosContext.Provider value={photos}>
+      <Room photos={photos} onPhoto={photo} />
+    </PhotosContext.Provider>
+  );
+}
+
+function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onPhoto"] }) {
   const [settings, setSettings] = useState(loadSettings);
   const [messages, setMessages] = useState<Message[]>(loadMessages);
   const [page, setPage] = useState<"room" | "settings">("room");
@@ -180,6 +246,8 @@ export default function App() {
     return (
       <SettingsPage
         settings={settings}
+        photos={photos}
+        onPhoto={onPhoto}
         onClose={() => setPage("room")}
         onSave={(next) => (setSettings(next), setPage("room"))}
         onClear={() => (setMessages([]), setRetry(null), setPage("room"))}

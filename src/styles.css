@@ -58,12 +58,24 @@ main {
 
 .avatar {
   flex: none;
+  position: relative;
+  overflow: hidden;
   display: inline-grid;
   place-items: center;
   border-radius: 50%;
+  border: 2px solid;
   color: #0b0d10;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
 }
 
 .field {
@@ -460,14 +472,43 @@ hr {
   gap: 12px;
 }
 
-.person div {
+.person > div {
   display: flex;
   flex-direction: column;
 }
 
-.person span {
+.person > div > span {
   color: var(--muted);
   font-size: 14px;
+}
+
+.photo-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.link {
+  padding: 0;
+  color: var(--primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.credits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.credits span {
+  color: var(--muted);
+}
+
+.credits a {
+  color: var(--muted);
 }
 
 .version {
