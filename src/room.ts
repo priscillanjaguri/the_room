@@ -14,8 +14,8 @@ const SONG = /\b(sing|song|songs|sang|sung|rap|rapping|lullaby|karaoke|melody|ve
 const BRAIN =
   /\b(should i|do i\b|shall i|help me (decide|choose|pick|figure)|what would you do|why\b|how (do|can|should|would|to)\b|what's the (best|right|smart)|what is the (best|right)|explain|strategy|architect|trade.?off|pros and cons|worth it|quit|resign|raise\b|negotiat|invest|career|break.?up|decision|decide|plan for|roadmap)\b/i;
 
-/// Who a message goes to: the room decides, everyone, or one expert's id.
-export type Target = "auto" | "everyone" | string;
+/// Who a message goes to: the room decides, everyone, or the people Pris tapped, in that order.
+export type Target = "auto" | "everyone" | string[];
 
 /// Who speaks now, and who is left if QH wants more of the table.
 export interface Round {
@@ -335,7 +335,10 @@ export async function speakers(target: Target, text: string, messages: Message[]
     const now = [first, ...restOf([first])];
     return { now, later: [] };
   }
-  if (target !== "auto") return { now: [target], later: [] };
+  if (Array.isArray(target) && target.length) {
+    const now = target.filter((id) => byId(id));
+    if (now.length) return { now, later: [] };
+  }
   const named = called(text);
   if (Array.isArray(named) && named.length) return { now: named, later: [] };
   const now = await pair(messages, settings, signal);

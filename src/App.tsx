@@ -576,8 +576,19 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   };
 
   const ask = (expert: Expert) => {
-    setTarget(expert.id);
+    setTarget((now) => (Array.isArray(now) ? (now.includes(expert.id) ? now : [...now, expert.id]) : [expert.id]));
     box.current?.focus();
+  };
+
+  const pick = (id: "auto" | "everyone" | string) => {
+    if (id === "auto" || id === "everyone") return setTarget(id);
+    setTarget((now) => {
+      if (Array.isArray(now)) {
+        const next = now.includes(id) ? now.filter((one) => one !== id) : [...now, id];
+        return next.length ? next : "auto";
+      }
+      return [id];
+    });
   };
 
   const again = () => {
@@ -590,7 +601,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const liveExpert = live?.who ? byId(live.who) : undefined;
   const speakingExpert = speaking ? byId(messages.find((message) => message.id === speaking)?.from ?? "") : undefined;
   const waitingExpert = [...held].map((id) => byId(messages.find((message) => message.id === id)?.from ?? "")).find(Boolean);
-  const chips: [Target, string][] = [["auto", "Room picks"], ["everyone", "Everyone"], ...EXPERTS.map((expert): [Target, string] => [expert.id, expert.short])];
+  const chips: ["auto" | "everyone" | string, string][] = [["auto", "Room picks"], ["everyone", "Everyone"], ...EXPERTS.map((expert): ["auto" | "everyone" | string, string] => [expert.id, expert.short])];
 
   return (
     <main className="room">
@@ -611,7 +622,9 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
                 ? `${speakingExpert.short} is speaking...`
                 : waitingExpert
                   ? `${waitingExpert.short} is talking...`
-                  : "Rick, Harvey, Jack, Steve"}
+                  : Array.isArray(target) && target.length
+                    ? target.map((id) => byId(id)?.short).filter(Boolean).join(", ")
+                    : "Rick, Harvey, Jack, Steve"}
           </span>
         </div>
         <button className={settings.speak ? "icon" : "icon muted"} onClick={toggleVoice} aria-label={settings.speak ? "Turn voices off" : "Turn voices on"}>
@@ -635,7 +648,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       }}>
         {messages.length === 0 && !live && (
           <div className="empty">
-            <p>Ask anything. They keep it short. Say "tell me more" when you want the why. Name someone to bring only them in, or say "everyone" for the whole table.</p>
+            <p>Ask anything. They keep it short. Say "tell me more" when you want the why. Tap names below to pick who is in, or say "everyone" for the whole table.</p>
             {SUGGESTIONS.map((suggestion) => (
               <button key={suggestion} onClick={() => send(suggestion)}>{suggestion}</button>
             ))}
@@ -714,8 +727,9 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         <div className="chips">
           {chips.map(([id, label]) => {
             const expert = byId(id);
+            const on = expert ? Array.isArray(target) && target.includes(id) : target === id;
             return (
-              <button key={id} className={target === id ? "chip on" : "chip"} style={target === id && expert ? { background: expert.colour } : undefined} onClick={() => setTarget(id)}>
+              <button key={id} className={on ? "chip on" : "chip"} style={on && expert ? { background: expert.colour } : undefined} onClick={() => pick(id)}>
                 {label}
               </button>
             );
@@ -746,7 +760,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
             ref={box}
             rows={1}
             value={draft}
-            placeholder={target === "auto" ? "Message the room" : target === "everyone" ? "Message everyone" : `Message ${byId(target)?.short}`}
+            placeholder={target === "auto" ? "Message the room" : target === "everyone" ? "Message everyone" : Array.isArray(target) ? `Message ${target.map((id) => byId(id)?.short).filter(Boolean).join(", ")}` : "Message the room"}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && window.matchMedia("(pointer: fine)").matches) {
