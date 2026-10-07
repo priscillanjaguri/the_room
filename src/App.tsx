@@ -471,48 +471,78 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       }
     };
     const gather = (target: Message) => feelings(target, current, settings, controller.signal).catch(() => [] as { from: string; react: string }[]);
+    let watching = "";
+    let felt: { from: string; react: string }[] = [];
+    const write = (expert: Expert) => {
+      const thread = current;
+      const id = newId();
+      return reply(expert, thread, settings, controller.signal, (soFar) => {
+        if (!settings.speak && watching === expert.id) setLive({ who: expert.id, text: soFar });
+      }).then((said): Message => ({ id, from: expert.id, text: said.text || "...", at: Date.now() }));
+    };
     try {
       const last = current.at(-1);
-      const painted = last && last.from !== "error" ? gather(last).then((incoming) => stamp(last, incoming)) : Promise.resolve();
+      if (!who && last && last.from !== "error") {
+        void gather(last)
+          .then((incoming) => {
+            felt = incoming;
+            return stamp(last, incoming);
+          })
+          .catch(() => {});
+      }
       if (!who) {
         setLive({ who: "", text: "" });
         const round = await speakers(chosen, text, thread, settings, controller.signal);
         queue = round.now;
         later = round.later;
       }
-      await painted;
+      let nextWrite: Promise<Message> | null = null;
+      if (queue[0]) {
+        watching = queue[0];
+        setLive({ who: queue[0], text: "" });
+        nextWrite = write(byId(queue[0])!);
+      }
       while (queue.length) {
         const expert = byId(queue[0])!;
-        const id = newId();
-        setLive({ who: expert.id, text: "" });
-        const said = await reply(expert, current, settings, controller.signal, (soFar) => {
-          if (!settings.speak) setLive({ who: expert.id, text: soFar });
-        });
-        const targetMsg = [...current].reverse().find((known) => known.from !== "error" && known.from !== expert.id);
-        const laughed = !!targetMsg?.reactions?.some((one) => one.from === expert.id && one.emoji === "😂");
-        const message: Message = { id, from: expert.id, text: said.text || "...", at: Date.now() };
+        watching = expert.id;
+        if (!nextWrite) {
+          setLive({ who: expert.id, text: "" });
+          nextWrite = write(expert);
+        }
+        const message = await nextWrite;
+        nextWrite = null;
+        if (controller.signal.aborted) return;
+        const laughed = felt.some((one) => one.from === expert.id && one.react === "laugh");
         current = [...current, message];
         setMessages(current);
         setLive(null);
-        const listening = gather(message);
-        if (settings.speak && said.text) {
-          setHeld((all) => new Set(all).add(id));
-          await speak(message, settings, controller.signal, laughed);
-        } else {
-          await wait(400);
+        watching = "";
+        const rest = queue.slice(1);
+        const listening = gather(message).then((incoming) => {
+          felt = incoming;
+          return incoming;
+        });
+        let playing = Promise.resolve();
+        if (settings.speak && message.text !== "...") {
+          setHeld((all) => new Set(all).add(message.id));
+          playing = speak(message, settings, controller.signal, laughed);
         }
+        if (rest[0]) nextWrite = write(byId(rest[0])!);
+        await playing;
         if (controller.signal.aborted) return;
-        await wait(280);
-        await stamp(message, await listening);
-        queue = queue.slice(1);
+        void listening.then((incoming) => stamp(message, incoming)).catch(() => {});
+        queue = rest;
+        if (queue[0]) {
+          watching = queue[0];
+          setLive({ who: queue[0], text: "" });
+        }
       }
       if (later.length) setMore(later);
-      try {
-        const decided = await note(current, settings, controller.signal);
-        if (decided) setSettings((all) => ({ ...all, decided }));
-      } catch (problem) {
-        if (controller.signal.aborted) throw problem;
-      }
+      void note(current, settings, controller.signal)
+        .then((decided) => {
+          if (decided && !controller.signal.aborted) setSettings((all) => ({ ...all, decided }));
+        })
+        .catch(() => {});
     } catch (problem) {
       if (!controller.signal.aborted) {
         current = [...current, { id: newId(), from: "error", text: reason(problem), at: Date.now() }];

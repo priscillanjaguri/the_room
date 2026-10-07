@@ -152,7 +152,7 @@ export async function feelings(message: Message, messages: Message[], settings: 
       system:
         "You pick WhatsApp reactions for a group chat. Not everyone reacts. One, two, or none is normal. All four is rare. Each person who would sit it out says none. Reply with one line per person: Name laugh, Name sad, Name up, Name down, Name party, or Name none. Nothing else.",
       prompt: `The people who can react:\n${others.map((one) => `${one.short}: ${one.craft}`).join("\n")}\n\n${who} just said:\n${message.text}\n\nRecent chat:\n${transcript(messages.slice(-8), settings)}\n\nWho actually taps an emoji?`,
-      maxTokens: 200,
+      maxTokens: 80,
       signal,
     });
     const picked: { from: string; react: string }[] = [];
@@ -191,7 +191,7 @@ async function best(messages: Message[], settings: Settings, signal: AbortSignal
       model: QUICK_MODEL,
       system: "You pick who answers next in a group chat. Reply with exactly one first name and nothing else.",
       prompt: `The people:\n${roster}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nWho is best placed to answer the last message? One of: ${EXPERTS.map((one) => one.short).join(", ")}.`,
-      maxTokens: 200,
+      maxTokens: 80,
       signal,
     });
     const named = namesIn(text);
@@ -204,11 +204,12 @@ async function best(messages: Message[], settings: Settings, signal: AbortSignal
 
 /// Two different people: who answers first, then who talks back to them.
 async function pair(messages: Message[], settings: Settings, signal: AbortSignal): Promise<string[]> {
-  const first = await best(messages, settings, signal);
-  const fallback = () => {
+  const fallback = (first?: string) => {
     const spoken = messages.map((message) => message.from);
-    const second = [...EXPERTS].filter((one) => one.id !== first).sort((a, b) => spoken.lastIndexOf(a.id) - spoken.lastIndexOf(b.id))[0].id;
-    return [first, second];
+    const ordered = [...EXPERTS].sort((a, b) => spoken.lastIndexOf(a.id) - spoken.lastIndexOf(b.id));
+    const one = first ?? ordered[0].id;
+    const two = ordered.find((expert) => expert.id !== one)!.id;
+    return [one, two];
   };
   try {
     const roster = EXPERTS.map((one) => `${one.short}: ${one.job}`).join("\n");
@@ -216,12 +217,14 @@ async function pair(messages: Message[], settings: Settings, signal: AbortSignal
       key: settings.key,
       model: QUICK_MODEL,
       system: "You pick two people for a short group-chat round. Reply with two different first names, comma separated, nothing else: who answers first, then who talks back to them.",
-      prompt: `The people:\n${roster}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nFirst name already chosen to open: ${byId(first)?.short}. Who should talk back to them? One of: ${EXPERTS.filter((one) => one.id !== first).map((one) => one.short).join(", ")}.`,
-      maxTokens: 200,
+      prompt: `The people:\n${roster}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nWho answers first, and who talks back? Two of: ${EXPERTS.map((one) => one.short).join(", ")}.`,
+      maxTokens: 80,
       signal,
     });
-    const second = namesIn(text).find((id) => id !== first);
-    return second ? [first, second] : fallback();
+    const named = [...new Set(namesIn(text))];
+    if (named.length >= 2) return named.slice(0, 2);
+    if (named.length === 1) return fallback(named[0]);
+    return fallback();
   } catch (error) {
     if (signal.aborted) throw error;
     return fallback();
