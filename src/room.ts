@@ -71,7 +71,6 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
-    "- First line exactly: REACT laugh, REACT sad, REACT up, REACT down, REACT party, or REACT none. That puts your face and that emoji on the last message that was not yours, like WhatsApp. React when it hits you. Use none if it did not. Then a blank line, then your spoken reply. Never mention the REACT line out loud.",
     reacting
       ? `- The last person to speak was ${previous.name}. Talk to them by name. Agree, steal the point, or push back. Do not repeat what they just said, and do not give ${you(settings)} a second copy of the same advice.${deeper ? "" : " One line is enough."}`
       : `- Answer ${you(settings)}. You can mention the others by name if you want them to come in.`,
@@ -125,7 +124,7 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
     previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
       ? `Now reply as ${expert.name} to ${previous.name}. Talk to them, not past them.${deeper ? " At most four short sentences." : " One short spoken sentence."}`
       : `Now reply as ${expert.name}.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
-  const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}\n\nFirst line: REACT none or REACT laugh/sad/up/down/party.`;
+  const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
   const text = await ask({
     key: settings.key,
     model: settings.model,
@@ -137,6 +136,40 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
   });
   const peeled = peel(text, expert);
   return { text: cap(peeled.text, longest), react: peeled.react };
+}
+
+const FEEL = /\b(laugh|sad|up|down|party|none)\b/i;
+
+/// Who in the room taps a WhatsApp reaction on this bubble. Any subset, including nobody.
+export async function feelings(message: Message, messages: Message[], settings: Settings, signal: AbortSignal): Promise<{ from: string; react: string }[]> {
+  const others = EXPERTS.filter((one) => one.id !== message.from);
+  if (!others.length || message.from === "error") return [];
+  const who = message.from === "you" ? you(settings) : byId(message.from)?.name ?? message.from;
+  try {
+    const text = await ask({
+      key: settings.key,
+      model: QUICK_MODEL,
+      system:
+        "You pick WhatsApp reactions for a group chat. Not everyone reacts. One, two, or none is normal. All four is rare. Each person who would sit it out says none. Reply with one line per person: Name laugh, Name sad, Name up, Name down, Name party, or Name none. Nothing else.",
+      prompt: `The people who can react:\n${others.map((one) => `${one.short}: ${one.craft}`).join("\n")}\n\n${who} just said:\n${message.text}\n\nRecent chat:\n${transcript(messages.slice(-8), settings)}\n\nWho actually taps an emoji?`,
+      maxTokens: 200,
+      signal,
+    });
+    const picked: { from: string; react: string }[] = [];
+    const seen = new Set<string>();
+    for (const line of text.split("\n")) {
+      const id = namesIn(line)[0];
+      const react = line.match(FEEL)?.[1]?.toLowerCase();
+      if (!id || !react || react === "none" || id === message.from || seen.has(id)) continue;
+      if (!others.some((one) => one.id === id)) continue;
+      seen.add(id);
+      picked.push({ from: id, react });
+    }
+    return picked;
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return [];
+  }
 }
 
 function namesIn(text: string): string[] {

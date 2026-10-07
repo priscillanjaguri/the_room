@@ -3,7 +3,7 @@ import { byId, EXPERTS, type Expert } from "./experts";
 import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { emojiOf, setReaction } from "./reacts";
-import { note, reply, speakers, type Target } from "./room";
+import { feelings, note, reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
 import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
 
@@ -36,15 +36,16 @@ function Avatar({ expert, size = 34 }: { expert: Expert; size?: number }) {
 
 const reason = (error: unknown) => (error instanceof BrainError ? error.message : error instanceof Error ? error.message : String(error));
 
-function Reacts({ message }: { message: Message }) {
+function Reacts({ message, whoosh }: { message: Message; whoosh: Set<string> }) {
   const list = (message.reactions ?? []).filter((one) => byId(one.from));
   if (!list.length) return null;
   return (
     <div className="reacts">
       {list.map((one) => {
         const expert = byId(one.from)!;
+        const fresh = whoosh.has(`${message.id}:${one.from}`);
         return (
-          <span key={one.from} className="react" aria-label={`${expert.short} reacted ${one.emoji}`}>
+          <span key={one.from} className={fresh ? "react in" : "react"} aria-label={`${expert.short} reacted ${one.emoji}`}>
             <Avatar expert={expert} size={16} />
             {one.emoji}
             <em>{expert.short}</em>
@@ -298,6 +299,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const fromMic = useRef(false);
   /// Message ids whose text is held back until the voice actually starts, so they don't type first.
   const [held, setHeld] = useState<Set<string>>(() => new Set());
+  const [whoosh, setWhoosh] = useState<Set<string>>(() => new Set());
   const unhold = (id: string) =>
     setHeld((all) => {
       if (!all.has(id)) return all;
@@ -443,13 +445,44 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     let current = thread;
     let queue = who ?? [];
     let later: string[] = [];
+    const wait = (ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(resolve, ms);
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            window.clearTimeout(timer);
+            reject(new DOMException("Stopped", "AbortError"));
+          },
+          { once: true },
+        );
+      });
+    const stamp = async (target: Message) => {
+      try {
+        const incoming = await feelings(target, current, settings, controller.signal);
+        for (const one of incoming) {
+          if (controller.signal.aborted) return;
+          const emoji = emojiOf(one.react);
+          if (!emoji) continue;
+          current = current.map((known) => (known.id === target.id ? { ...known, reactions: setReaction(known.reactions, one.from, emoji) } : known));
+          setWhoosh((all) => new Set(all).add(`${target.id}:${one.from}`));
+          setMessages(current);
+          await wait(180);
+        }
+      } catch (problem) {
+        if (controller.signal.aborted) throw problem;
+      }
+    };
     try {
+      const last = current.at(-1);
+      const painted = last && last.from !== "error" ? stamp(last) : Promise.resolve();
       if (!who) {
         setLive({ who: "", text: "" });
         const round = await speakers(chosen, text, thread, settings, controller.signal);
         queue = round.now;
         later = round.later;
       }
+      await painted;
       while (queue.length) {
         const expert = byId(queue[0])!;
         const id = newId();
@@ -458,18 +491,19 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
           if (!settings.speak) setLive({ who: expert.id, text: soFar });
         });
         const targetMsg = [...current].reverse().find((known) => known.from !== "error" && known.from !== expert.id);
-        const emoji = said.react ? emojiOf(said.react) : "";
-        if (emoji && targetMsg) current = current.map((known) => (known.id === targetMsg.id ? { ...known, reactions: setReaction(known.reactions, expert.id, emoji) } : known));
+        const laughed = !!targetMsg?.reactions?.some((one) => one.from === expert.id && one.emoji === "😂");
         const message: Message = { id, from: expert.id, text: said.text || "...", at: Date.now() };
         current = [...current, message];
         setMessages(current);
         setLive(null);
+        const whooshing = stamp(message);
         if (settings.speak && said.text) {
           setHeld((all) => new Set(all).add(id));
-          speak(message, settings, controller.signal, said.react === "laugh");
+          speak(message, settings, controller.signal, laughed);
           const audio = spoken.current.get(id);
           if (audio) await audio.catch(() => {});
         }
+        await whooshing;
         queue = queue.slice(1);
       }
       if (later.length) setMore(later);
@@ -580,7 +614,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
               <div key={message.id} className="said mine-wrap">
                 <div>
                   <div className="bubble mine">{message.text}</div>
-                  <Reacts message={message} />
+                  <Reacts message={message} whoosh={whoosh} />
                 </div>
               </div>
             );
@@ -598,7 +632,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
                   {held.has(message.id) ? <span className="dots"><i /><i /><i /></span> : message.text}
                   {speaking === message.id && <span className="wave" style={{ color: expert.colour }}><i /><i /><i /><i /></span>}
                 </div>
-                <Reacts message={message} />
+                <Reacts message={message} whoosh={whoosh} />
                 <button className="ask" onClick={() => ask(expert)}>
                   Ask {expert.short}
                 </button>
