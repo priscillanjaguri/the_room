@@ -4,7 +4,7 @@ import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
-import { fishVoiceIn, hear, Recorder, say, Speaker } from "./voice";
+import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
 
 /// A recording stops by itself after this, so a forgotten mic doesn't run up a bill.
 const LONGEST_RECORDING = 120;
@@ -517,8 +517,13 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
 
       <footer className="composer">
         {notice && (
-          <div className="notice" onClick={() => setNotice("")}>
-            {notice}
+          <div className="notice">
+            <span onClick={() => setNotice("")}>{notice}</span>
+            {notice.toLowerCase().includes("microphone") && (
+              <button className="link" onClick={() => void openMicSettings()}>
+                Open settings
+              </button>
+            )}
           </div>
         )}
         <div className="chips">

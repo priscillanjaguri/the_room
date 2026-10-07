@@ -1,7 +1,26 @@
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { Expert } from "./experts";
 import { Offline, post } from "./net";
 import { BrainError } from "./openai";
 import type { Settings } from "./store";
+
+const Mic = registerPlugin<{ ask(): Promise<void>; settings(): Promise<void> }>("Mic");
+
+/// Asks Android for the microphone before the page tries to record. Old APKs don't have this
+/// plugin, so those fail with "unimplemented" and we tell the person to install the new app.
+export async function prepareMic(): Promise<"ok" | "old" | "denied"> {
+  if (!Capacitor.isNativePlatform()) return "ok";
+  try {
+    await Mic.ask();
+    return "ok";
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "UNIMPLEMENTED" || code === "unimplemented") return "old";
+    return "denied";
+  }
+}
+
+export const openMicSettings = () => Mic.settings().catch(() => {});
 
 const OPENAI_SPEECH = "https://api.openai.com/v1/audio/speech";
 const OPENAI_HEARING = "https://api.openai.com/v1/audio/transcriptions";
@@ -163,13 +182,16 @@ export class Recorder {
   private keep = true;
 
   async start(): Promise<void> {
+    const allowed = await prepareMic();
+    if (allowed === "old") throw new BrainError("This copy of the app cannot use the microphone. Install The-room.apk from your PC, then open The room and tap Allow.");
+    if (allowed === "denied") throw new BrainError("Microphone is off for The room. Open the app's permissions and allow Microphone.");
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (error) {
       const name = (error as DOMException)?.name;
       if (name === "NotAllowedError" || name === "SecurityError")
-        throw new BrainError("The room is not allowed to use the microphone. Install the newest app from your PC once, then allow the microphone when your phone asks.");
+        throw new BrainError("Microphone is off for The room. Open the app's permissions and allow Microphone.");
       if (name === "NotFoundError") throw new BrainError("This phone has no microphone the room can use.");
       throw new BrainError("Could not start the microphone.");
     }
