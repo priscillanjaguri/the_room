@@ -29,24 +29,27 @@ const HEARING_MODEL = "gpt-4o-mini-transcribe";
 const FISH_SPEECH = "https://api.fish.audio/v1/tts";
 /// fish.audio's free tier of its newest voice model, the one Gleam uses: it needs no API credit.
 const FISH_MODEL = "s2.1-pro-free";
-/// Speech is paid by length and a long answer is tiring to hear; two sentences is enough in the ear.
-const SPOKEN_SENTENCES = 2;
+/// A runaway reply is tiring in the ear; past this we stop on a sentence end.
+const LONGEST_SPOKEN = 900;
 
-/// The words a voice should read: no emojis, no asterisks around actions, no stray spacing.
+/// The words a voice should read: no emojis, no asterisks around actions. Speaks the whole
+/// finished reply, and never starts a sentence it cannot finish.
 export function forSpeech(text: string): string {
   const spoken = text
     .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}\u{20E3}]/gu, "")
     .replace(/\*/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  const sentences = spoken.split(/(?<=[.!?])\s+/).filter(Boolean);
-  return sentences.slice(0, SPOKEN_SENTENCES).join(" ");
-}
-
-/// Enough of a reply is in to start the voice without waiting for the rest to finish typing.
-export function speechReady(text: string): boolean {
-  const spoken = forSpeech(text);
-  return spoken.split(/(?<=[.!?])\s+/).filter(Boolean).length >= SPOKEN_SENTENCES;
+  if (!spoken) return "";
+  const parts = spoken.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const finished = parts.filter((part, index) => /[.!?]$/.test(part) || index === parts.length - 1);
+  let out = finished.join(" ");
+  if (out.length > LONGEST_SPOKEN) {
+    out = out.slice(0, LONGEST_SPOKEN);
+    const stop = Math.max(out.lastIndexOf(". "), out.lastIndexOf("! "), out.lastIndexOf("? "));
+    if (stop > 0) out = out.slice(0, stop + 1).trim();
+  }
+  return out;
 }
 
 /// A fish.audio voice id is 32 hex characters; people paste the voice page's link as often as the

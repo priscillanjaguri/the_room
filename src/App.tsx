@@ -4,7 +4,7 @@ import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { note, reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
-import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker, speechReady } from "./voice";
+import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
 
 /// A recording stops by itself after this, so a forgotten mic doesn't run up a bill.
 const LONGEST_RECORDING = 120;
@@ -433,32 +433,17 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       while (queue.length) {
         const expert = byId(queue[0])!;
         const id = newId();
-        let kicked = false;
-        const upsert = (text: string) => {
-          const message: Message = { id, from: expert.id, text: text || "...", at: Date.now() };
-          current = current.some((known) => known.id === id) ? current.map((known) => (known.id === id ? message : known)) : [...current, message];
-          setMessages(current);
-          return message;
-        };
         setLive({ who: expert.id, text: "" });
         const said = await reply(expert, current, settings, controller.signal, (soFar) => {
-          if (!settings.speak) return setLive({ who: expert.id, text: soFar });
-          if (!kicked && speechReady(soFar)) {
-            kicked = true;
-            setHeld((all) => new Set(all).add(id));
-            speak(upsert(soFar), settings, controller.signal);
-            setLive(null);
-          } else if (kicked) {
-            upsert(soFar);
-          }
+          if (!settings.speak) setLive({ who: expert.id, text: soFar });
         });
-        const message = upsert(said || "...");
-        if (settings.speak && !kicked && said) {
+        const message: Message = { id, from: expert.id, text: said || "...", at: Date.now() };
+        current = [...current, message];
+        setMessages(current);
+        setLive(null);
+        if (settings.speak && said) {
           setHeld((all) => new Set(all).add(id));
           speak(message, settings, controller.signal);
-        }
-        setLive(null);
-        if (settings.speak) {
           const audio = spoken.current.get(id);
           if (audio) await audio.catch(() => {});
         }
