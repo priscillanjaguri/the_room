@@ -11,6 +11,8 @@ export interface Message {
   reactions?: Reaction[];
 }
 
+export const DEFAULT_NAME = "Priscilla";
+
 export interface Settings {
   key: string;
   model: string;
@@ -63,7 +65,7 @@ export function loadSettings(): Settings {
     // Old defaults we replaced with better clones; keep a voice only if QH picked a different one.
     if (found && found !== expertVoice(id) && !STALE_VOICES.has(found)) voices[id] = pasted;
   }
-  return { key, model, name: saved.name ?? "", speak: saved.speak ?? true, fishKey: saved.fishKey?.trim() || FISH_KEY, voices, decided: saved.decided ?? "" };
+  return { key, model, name: saved.name?.trim() || DEFAULT_NAME, speak: saved.speak ?? true, fishKey: saved.fishKey?.trim() || FISH_KEY, voices, decided: saved.decided ?? "" };
 }
 
 export const saveSettings = (settings: Settings) => write(SETTINGS, settings);

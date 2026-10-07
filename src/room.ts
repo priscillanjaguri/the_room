@@ -1,6 +1,6 @@
 import { ask, QUICK_MODEL, SHARP_MODEL } from "./openai";
 import { byId, called, EXPERTS, type Expert } from "./experts";
-import type { Message, Settings } from "./store";
+import { DEFAULT_NAME, type Message, type Settings } from "./store";
 
 /// How much of the thread each reply sees.
 const REMEMBERED = 40;
@@ -23,13 +23,20 @@ export interface Round {
   later: string[];
 }
 
-const you = (settings: Settings) => settings.name.trim() || "the person who runs this room";
+function who(settings: Settings): { full: string; short: string } {
+  const full = settings.name.trim() || DEFAULT_NAME;
+  if (/^pris(cilla)?$/i.test(full)) return { full: /^pris$/i.test(full) ? "Pris" : "Priscilla", short: "Pris" };
+  return { full, short: full.split(/\s+/)[0] || full };
+}
+
+const you = (settings: Settings) => who(settings).full;
+const pris = (settings: Settings) => who(settings).short;
 
 function transcript(messages: Message[], settings: Settings): string {
   return messages
     .filter((message) => message.from !== "error")
     .slice(-REMEMBERED)
-    .map((message) => `${message.from === "you" ? settings.name.trim() || "You (the coordinator)" : byId(message.from)?.name ?? message.from}: ${message.text}`)
+    .map((message) => `${message.from === "you" ? you(settings) : byId(message.from)?.name ?? message.from}: ${message.text}`)
     .join("\n\n");
 }
 
@@ -72,7 +79,7 @@ function thisRound(messages: Message[]): Message[] {
 function onTheTable(messages: Message[], settings: Settings): string {
   const asked = lastAsk(messages);
   const lines: string[] = [];
-  if (asked) lines.push(`The question on the table, from ${you(settings)}: ${asked}`);
+  if (asked) lines.push(`The question on the table, from ${pris(settings)}: ${asked}`);
   if (settings.decided.trim()) lines.push(`What the room already settled: ${settings.decided.trim()}`);
   const spoken = thisRound(messages)
     .filter((message) => message.from !== "you" && message.from !== "error" && byId(message.from))
@@ -119,30 +126,31 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
   const song = wantsSong(asked);
   return [
     `You are ${expert.name}, whose craft is ${expert.craft}, in a private group chat called "The room" on ${you(settings)}'s phone.`,
-    `Also in the room: ${others}. ${you(settings)} runs the meeting and makes the calls.`,
+    `Also in the room: ${others}.`,
+    `${you(settings)} is at the table with you. Call her ${pris(settings)}. This is a round table: talk to her by name, include her, ask her back. She makes the calls, but she is in the conversation, not an audience you brief.`,
     expert.personality,
     `Your job in this room: ${expert.job} Bring that lens only when it helps the question on the table. If it does not apply, stay in this conversation as yourself anyway. Do not hijack the topic to your specialty.`,
     onTheTable(messages, settings),
-    settings.decided.trim() ? `If the room note records a decision, do not reopen it unless ${you(settings)} clearly wants to.` : "",
+    settings.decided.trim() ? `If the room note records a decision, do not reopen it unless ${pris(settings)} clearly wants to.` : "",
     "How to reply:",
     `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
     "- This is one conversation with several voices. Stay on the question on the table. Do not start a new subject.",
     "- Listen to what was already said this round. Add the missing piece, agree, or push back. Do not restate it, and do not give a second copy of the same advice.",
     song
-      ? `- ${you(settings)} asked for a song. Actually sing. Write 4 to 8 short lyric lines in your voice, about what they asked. Do not refuse, do not say you cannot sing, do not explain that you are an AI. Plain lyrics only, one line per line.`
+      ? `- ${pris(settings)} asked for a song. Actually sing. Write 4 to 8 short lyric lines in your voice, about what they asked. Do not refuse, do not say you cannot sing, do not explain that you are an AI. Plain lyrics only, one line per line.`
       : "- Talk like a person in a room, not an essay. Short spoken sentences. No stacked clauses, no lists, no 'first... second...'.",
     song
       ? ""
       : deeper
-        ? `- ${you(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
+        ? `- ${pris(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
         : `- One short sentence. Two if you must. Do not explain unless asked.`,
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
     reacting
-      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Answer them, pick up ${you(settings)}'s question, or both — but keep it the same conversation.`
-      : `- Answer ${you(settings)} on the question on the table. You can mention the others by name if you want them to come in.`,
+      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Answer them, pick up ${pris(settings)}'s question, or both. Keep ${pris(settings)} in the round table.`
+      : `- Answer ${pris(settings)} by name on the question on the table. You can pull the others in by name too.`,
   ]
     .filter(Boolean)
     .join("\n");

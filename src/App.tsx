@@ -167,7 +167,7 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
       <div className="settings-body">
         <label>
           <span>Your name</span>
-          <input className="field" value={draft.name} placeholder="What the room calls you" onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
+          <input className="field" value={draft.name} placeholder="Priscilla" onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
         </label>
         <label>
           <span>OpenAI API key</span>
