@@ -71,7 +71,7 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
-    "- First line exactly: REACT laugh, REACT sad, REACT up, REACT down, REACT party, or REACT none. That is a WhatsApp reaction to the last message that was not yours. Use none unless it really landed. Then a blank line, then your spoken reply. Never mention the REACT line out loud.",
+    "- First line exactly: REACT laugh, REACT sad, REACT up, REACT down, REACT party, or REACT none. That puts your face and that emoji on the last message that was not yours, like WhatsApp. React when it hits you. Use none if it did not. Then a blank line, then your spoken reply. Never mention the REACT line out loud.",
     reacting
       ? `- The last person to speak was ${previous.name}. Talk to them by name. Agree, steal the point, or push back. Do not repeat what they just said, and do not give ${you(settings)} a second copy of the same advice.${deeper ? "" : " One line is enough."}`
       : `- Answer ${you(settings)}. You can mention the others by name if you want them to come in.`,

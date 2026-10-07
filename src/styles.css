@@ -289,7 +289,6 @@ main {
 }
 
 .reacts {
-  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -297,13 +296,12 @@ main {
   margin-top: 4px;
 }
 
-.react,
-.react-tray .react {
+.react {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   height: 26px;
-  padding: 0 8px;
+  padding: 0 8px 0 3px;
   border-radius: 999px;
   background: var(--surface-2);
   border: 1px solid var(--line);
@@ -311,40 +309,14 @@ main {
   line-height: 1;
 }
 
-.react.on {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 16%, var(--surface-2));
-}
-
-.react span {
+.react em {
+  font-style: normal;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
-.react.add {
-  width: 26px;
-  padding: 0;
-  color: var(--muted);
-  justify-content: center;
-}
-
-.react-tray {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
-  z-index: 2;
-  display: flex;
-  gap: 4px;
-  padding: 6px;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  box-shadow: 0 8px 24px #0008;
-}
-
-.mine-wrap .react-tray {
-  left: auto;
-  right: 0;
+.react .avatar {
+  border-width: 1px;
 }
 
 .turn {
