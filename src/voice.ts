@@ -34,7 +34,7 @@ export function fishVoiceIn(pasted: string): string {
   return (pasted.match(/[0-9a-f]{32}/i)?.[0] ?? "").toLowerCase();
 }
 
-const fishVoice = (expert: Expert, settings: Settings) => (settings.fishKey.trim() ? fishVoiceIn(settings.voices[expert.id] ?? "") : "");
+const fishVoice = (expert: Expert, settings: Settings) => (settings.fishKey.trim() ? fishVoiceIn(settings.voices[expert.id] || expert.voice.fish) : "");
 
 function speechProblem(service: "OpenAI" | "fish.audio", status: number, body: unknown): BrainError {
   const error = (body as { error?: { message?: string; code?: string }; message?: string } | null) ?? null;

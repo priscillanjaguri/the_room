@@ -202,18 +202,20 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
           <input className="field" type="password" autoComplete="off" spellCheck={false} placeholder="For fish.audio voices" value={draft.fishKey} onChange={(event) => setDraft({ ...draft, fishKey: event.target.value })} />
         </label>
         <p className="hint">
-          Without one, everyone speaks in an OpenAI voice. To use fish.audio, sign in at <a href="https://fish.audio/app/api-keys/">fish.audio</a>, create an API key, then open any voice on fish.audio and paste its link under an expert below.
+          Voices below are already picked. Paste a fish.audio API key from <a href="https://fish.audio/app/api-keys/">fish.audio</a> and they speak in those voices. Clear a link to use OpenAI's voice for that person instead.
         </p>
         <div className="voices">
           {EXPERTS.map((expert) => {
-            const link = draft.voices[expert.id] ?? "";
-            const fish = draft.fishKey.trim() && fishVoiceIn(link);
+            const link = draft.voices[expert.id] ?? expert.voice.fish;
+            const fishId = fishVoiceIn(link);
+            const fish = !!draft.fishKey.trim() && !!fishId;
+            const canHear = fish || !!draft.key.trim();
             return (
               <div key={expert.id} className="voice">
                 <div className="voice-head">
                   <b style={{ color: expert.colour }}>{expert.short}</b>
-                  <span>{fish ? "fish.audio voice" : link.trim() && !fishVoiceIn(link) ? "Not a fish.audio voice link" : `OpenAI "${expert.voice.openai}" voice`}</span>
-                  <button className="link" disabled={!!sampling || !draft.key.trim()} onClick={() => void sample(expert)}>{sampling === expert.id ? "Loading..." : "Hear"}</button>
+                  <span>{fish ? "fish.audio voice" : link.trim() && !fishId ? "Not a fish.audio voice link" : `OpenAI "${expert.voice.openai}" voice`}</span>
+                  <button className="link" disabled={!!sampling || !canHear} onClick={() => void sample(expert)}>{sampling === expert.id ? "Loading..." : "Hear"}</button>
                 </div>
                 <input className="field" spellCheck={false} placeholder="fish.audio voice link (optional)" value={link} onChange={(event) => setDraft({ ...draft, voices: { ...draft.voices, [expert.id]: event.target.value } })} />
               </div>

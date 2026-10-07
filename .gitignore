@@ -2,3 +2,4 @@ node_modules
 dist
 *.apk
 .env.local
+fish-key.txt

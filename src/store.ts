@@ -1,3 +1,4 @@
+import { EXPERTS } from "./experts";
 import { DEFAULT_MODEL, MODELS } from "./openai";
 
 export interface Message {
@@ -47,7 +48,8 @@ export function loadSettings(): Settings {
   const model = MODELS.some(([id]) => id === saved.model) ? saved.model! : DEFAULT_MODEL;
   // An Anthropic key from the first version of the app means nothing to OpenAI.
   const key = saved.key?.startsWith("sk-ant-") ? "" : saved.key ?? "";
-  return { key, model, name: saved.name ?? "", speak: saved.speak ?? true, fishKey: saved.fishKey ?? "", voices: saved.voices ?? {} };
+  const voices = { ...Object.fromEntries(EXPERTS.map((expert) => [expert.id, expert.voice.fish])), ...saved.voices };
+  return { key, model, name: saved.name ?? "", speak: saved.speak ?? true, fishKey: saved.fishKey ?? "", voices };
 }
 
 export const saveSettings = (settings: Settings) => write(SETTINGS, settings);

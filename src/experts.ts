@@ -17,8 +17,8 @@ export interface Expert {
   calls: string[];
   personality: string;
   photo: Photo;
-  /// How they sound when no fish.audio voice is set: an OpenAI voice and how it should read.
-  voice: { openai: string; style: string };
+  /// How they sound: an OpenAI voice and style, plus the fish.audio voice to use when a Fish key is set.
+  voice: { openai: string; style: string; fish: string };
 }
 
 /// The four people in the room. Rick's and Harvey's pictures belong to their shows, so they load
@@ -35,7 +35,7 @@ export const EXPERTS: Expert[] = [
     personality:
       "You are the smartest being in any room and you know it: impatient, sarcastic, nihilistic, with the occasional *burp* mid-sentence. You call ideas dumb before you fix them, and you always find the physics, the system or the first principle underneath the problem. You hate bureaucracy and feelings-talk, and you push for the bold, technically elegant answer, while being blunt about what will actually break.",
     photo: { src: "https://rickandmortyapi.com/api/character/avatar/1.jpeg", focus: "45% 35%", credit: "The Rick and Morty API", link: "https://rickandmortyapi.com" },
-    voice: { openai: "ash", style: "Gravelly, impatient old genius. Fast, sarcastic and dismissive, slightly slurred, with the odd burp." },
+    voice: { openai: "ash", style: "Gravelly, impatient old genius. Fast, sarcastic and dismissive, slightly slurred, with the odd burp.", fish: "cac3f602a5cd4b8fa07132b467002b6a" },
   },
   {
     id: "harvey",
@@ -47,7 +47,7 @@ export const EXPERTS: Expert[] = [
     personality:
       "You are the best closer in New York: confident, sharp-suited, quick with a line and never caught off guard. You play the man, not the odds, you look for leverage before you talk, and you never show your hand. You speak in short, cool sentences, with the odd film quote, and you push for the move that wins the deal and protects the client.",
     photo: { src: "https://static.tvmaze.com/uploads/images/medium_portrait/161/404014.jpg", focus: "50% 12%", credit: "TVMaze", link: "https://www.tvmaze.com/search?q=suits" },
-    voice: { openai: "onyx", style: "Smooth, confident New York closer. Cool and measured, never rushed, with a hint of a smirk." },
+    voice: { openai: "onyx", style: "Smooth, confident New York closer. Cool and measured, never rushed, with a hint of a smirk.", fish: "0038a310042f44e3b825b9931e6bdccd" },
   },
   {
     id: "jack",
@@ -59,7 +59,7 @@ export const EXPERTS: Expert[] = [
     personality:
       "You are Captain Jack Sparrow, and you insist on the Captain. You ramble, misdirect and charm, and somehow your plans work out, usually because you saw an exit nobody else did. You trade rather than fight, you look for what each side truly wants, and you are honest about risk in your own sideways way. You talk with a pirate's swagger, savvy?",
     photo: { src: "/faces/jack.jpg", focus: "50% 50%", credit: "Wax figure photo, public domain, via Wikimedia Commons", link: "https://commons.wikimedia.org/wiki/File:Jack_Sparrow_wax.jpg" },
-    voice: { openai: "fable", style: "Theatrical, rambling pirate captain. Swaying rhythm, charming and a little tipsy, drawing out words for effect." },
+    voice: { openai: "fable", style: "Theatrical, rambling pirate captain. Swaying rhythm, charming and a little tipsy, drawing out words for effect.", fish: "0d44f32bfe214df7a11a1d73414040fd" },
   },
   {
     id: "steve",
@@ -76,7 +76,7 @@ export const EXPERTS: Expert[] = [
       credit: "Photo by Matthew Yohe, CC BY-SA 3.0, via Wikimedia Commons (cropped)",
       link: "https://commons.wikimedia.org/wiki/File:Steve_Jobs_Headshot_2010-CROP_(cropped_2).jpg",
     },
-    voice: { openai: "echo", style: "Calm, intense keynote presenter. Deliberate and precise, warm, with pauses for emphasis." },
+    voice: { openai: "echo", style: "Calm, intense keynote presenter. Deliberate and precise, warm, with pauses for emphasis.", fish: "88ae0f0858a54e458443a554d1ad820e" },
   },
 ];
 
