@@ -202,7 +202,7 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
           <input className="field" type="password" autoComplete="off" spellCheck={false} placeholder="For fish.audio voices" value={draft.fishKey} onChange={(event) => setDraft({ ...draft, fishKey: event.target.value })} />
         </label>
         <p className="hint">
-          Voices below are already picked. Paste a fish.audio API key from <a href="https://fish.audio/app/api-keys/">fish.audio</a> and they speak in those voices. Clear a link to use OpenAI's voice for that person instead.
+          Voices below are already picked. The fish.audio key is already in the app. Clear a link to use OpenAI's voice for that person instead.
         </p>
         <div className="voices">
           {EXPERTS.map((expert) => {

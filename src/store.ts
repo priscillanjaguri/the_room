@@ -25,6 +25,8 @@ const SETTINGS = "room.settings";
 const MESSAGES = "room.messages";
 /// Older messages are dropped past this, so the phone's storage never fills up.
 const KEPT = 500;
+/// QH's own fish.audio key, so the four voices work without pasting it on the phone.
+const FISH_KEY = "sk-fish-VFfr7-T9nE4c8UPAq95Hmnjo3sBVxb_L7vcMCWP8k-U";
 
 function read<T>(name: string, fallback: T): T {
   try {
@@ -49,7 +51,7 @@ export function loadSettings(): Settings {
   // An Anthropic key from the first version of the app means nothing to OpenAI.
   const key = saved.key?.startsWith("sk-ant-") ? "" : saved.key ?? "";
   const voices = { ...Object.fromEntries(EXPERTS.map((expert) => [expert.id, expert.voice.fish])), ...saved.voices };
-  return { key, model, name: saved.name ?? "", speak: saved.speak ?? true, fishKey: saved.fishKey ?? "", voices };
+  return { key, model, name: saved.name ?? "", speak: saved.speak ?? true, fishKey: saved.fishKey?.trim() || FISH_KEY, voices };
 }
 
 export const saveSettings = (settings: Settings) => write(SETTINGS, settings);
