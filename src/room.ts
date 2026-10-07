@@ -126,8 +126,8 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
   const song = wantsSong(asked);
   return [
     `You are ${expert.name}, whose craft is ${expert.craft}, in a private group chat called "The room" on ${you(settings)}'s phone.`,
-    `Also in the room: ${others}.`,
-    `${you(settings)} is at the table with you. Call her ${pris(settings)}. This is a round table: talk to her by name, include her, ask her back. She makes the calls, but she is in the conversation, not an audience you brief.`,
+    `Also at this table: ${others}, and ${you(settings)}, who goes by ${pris(settings)}. Five people. Talk to whoever the line is actually for.`,
+    `Know ${pris(settings)}'s name. Do not start replies with it. Only say it when you are really talking to her — a decision, a question back, or telling her apart from someone else.`,
     expert.personality,
     `Your job in this room: ${expert.job} Bring that lens only when it helps the question on the table. If it does not apply, stay in this conversation as yourself anyway. Do not hijack the topic to your specialty.`,
     onTheTable(messages, settings),
@@ -147,19 +147,22 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
-    "- Do not start your reply with your own name.",
+    `- Do not start your reply with your own name, or with ${pris(settings)}.`,
     reacting
-      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Answer them, pick up ${pris(settings)}'s question, or both. Keep ${pris(settings)} in the round table.`
-      : `- Answer ${pris(settings)} by name on the question on the table. You can pull the others in by name too.`,
+      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Talk to them. The rest of the table is still here. Do not look at ${pris(settings)} unless you need her.`
+      : `- Answer the question to the room. Name ${pris(settings)} only if you are handing it to her. Name the others if they should come in.`,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
 /// Strips a "Name:" the model sometimes puts in front of its own reply.
-function clean(text: string, expert: Expert): string {
-  const prefix = new RegExp(`^\\s*(${expert.name}|${expert.short}|Captain ${expert.short}|Captain Jack Sparrow)\\s*:\\s*`, "i");
-  return text.replace(prefix, "").trim();
+function clean(text: string, expert: Expert, settings?: Settings): string {
+  const hers = settings ? [you(settings), pris(settings)] : [];
+  const names = [expert.name, expert.short, "Captain " + expert.short, "Captain Jack Sparrow", ...hers]
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  return text.replace(new RegExp(`^\\s*(?:(?:hey|hi)\\s+)?(${names})\\s*[,:!]\\s*`, "i"), "").trim();
 }
 
 /// Hard cap so a long-winded reply cannot run past the spoken length we asked for.
@@ -173,8 +176,8 @@ function cap(text: string, sentences: number, song = false): string {
 }
 
 /// Pulls the WhatsApp reaction off the first line so it never gets spoken or shown as chat.
-function peel(raw: string, expert: Expert): { text: string; react: string | null } {
-  const cleaned = clean(raw, expert);
+function peel(raw: string, expert: Expert, settings?: Settings): { text: string; react: string | null } {
+  const cleaned = clean(raw, expert, settings);
   const lines = cleaned.split("\n");
   const match = lines[0]?.trim().match(/^REACT\s+(laugh|sad|up|down|party|none)\.?$/i);
   if (!match) return { text: cleaned, react: null };
@@ -183,8 +186,8 @@ function peel(raw: string, expert: Expert): { text: string; react: string | null
 }
 
 /// The spoken part only, so a half-typed REACT line does not flash on screen.
-function shown(raw: string, expert: Expert): string {
-  const cleaned = clean(raw, expert);
+function shown(raw: string, expert: Expert, settings?: Settings): string {
+  const cleaned = clean(raw, expert, settings);
   if (!/^REACT\b/i.test(cleaned)) return cleaned;
   const breakAt = cleaned.indexOf("\n");
   return breakAt < 0 ? "" : cleaned.slice(breakAt + 1).trim();
@@ -221,9 +224,9 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
     prompt,
     maxTokens: song || deeper ? LONG_TOKENS : SHORT_TOKENS,
     signal,
-    onText: (soFar) => onText(cap(shown(soFar, expert), longest, song)),
+    onText: (soFar) => onText(cap(shown(soFar, expert, settings), longest, song)),
   });
-  const peeled = peel(text, expert);
+  const peeled = peel(text, expert, settings);
   return { text: cap(peeled.text, longest, song), react: peeled.react };
 }
 
