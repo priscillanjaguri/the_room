@@ -2,7 +2,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { byId, EXPERTS, type Expert } from "./experts";
 import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
-import { reply, speakers, type Target } from "./room";
+import { note, reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
 import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
 
@@ -273,6 +273,9 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const [target, setTarget] = useState<Target>("auto");
   const [live, setLive] = useState<Live | null>(null);
   const [retry, setRetry] = useState<string[] | null>(null);
+  const [more, setMore] = useState<string[] | null>(null);
+  const [turn, setTurn] = useState(false);
+  const fromMic = useRef(false);
   const stop = useRef<AbortController | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -308,7 +311,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   useLayoutEffect(() => {
     const element = list.current;
     if (element && pinned.current) element.scrollTop = element.scrollHeight;
-  }, [messages, live, retry, page]);
+  }, [messages, live, retry, more, turn, page]);
 
   useLayoutEffect(() => {
     const element = box.current;
@@ -327,7 +330,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         onPhoto={onPhoto}
         onClose={() => setPage("room")}
         onSave={(next) => (setSettings(next), setPage("room"))}
-        onClear={() => (speaker.stop(), spoken.current.clear(), setMessages([]), setRetry(null), setPage("room"))}
+        onClear={() => (speaker.stop(), spoken.current.clear(), setMessages([]), setRetry(null), setMore(null), setSettings((all) => ({ ...all, decided: "" })), setPage("room"))}
       />
     );
 
@@ -359,16 +362,18 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     setSettings({ ...settings, speak: !settings.speak });
   };
 
-  const listen = async () => {
+  const listen = async (hands = false) => {
     speaker.stop();
     setNotice("");
+    setTurn(false);
     setMic("starting");
     try {
       await recorder.start();
       setMic("on");
     } catch (problem) {
       setMic("off");
-      setNotice(reason(problem));
+      if (hands) setTurn(true);
+      else setNotice(reason(problem));
     }
   };
 
@@ -378,7 +383,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     setMic("hearing");
     try {
       const words = await hear(recording, settings);
-      if (words) send(words);
+      if (words) send(words, "mic");
       else setNotice("Didn't catch that. Try again a little closer to the phone.");
     } catch (problem) {
       setNotice(reason(problem));
@@ -388,18 +393,28 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   };
   autoStop.current = () => void finish(true);
 
+  const handBack = () => {
+    if (box.current?.value.trim() || document.visibilityState === "hidden") return setTurn(true);
+    void listen(true);
+  };
+
   /// Runs the experts in turn; each one sees what the ones before it said.
   const run = async (who: string[] | null, thread: Message[], text: string, chosen: Target) => {
     const controller = new AbortController();
     stop.current = controller;
     setRetry(null);
+    setMore(null);
+    setTurn(false);
     pinned.current = true;
     let current = thread;
     let queue = who ?? [];
+    let later: string[] = [];
     try {
       if (!who) {
         setLive({ who: "", text: "" });
-        queue = await speakers(chosen, text, thread, settings, controller.signal);
+        const round = await speakers(chosen, text, thread, settings, controller.signal);
+        queue = round.now;
+        later = round.later;
       }
       while (queue.length) {
         const expert = byId(queue[0])!;
@@ -411,6 +426,13 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         if (settings.speak && said) speak(message);
         queue = queue.slice(1);
       }
+      if (later.length) setMore(later);
+      try {
+        const decided = await note(current, settings, controller.signal);
+        if (decided) setSettings((all) => ({ ...all, decided }));
+      } catch (problem) {
+        if (controller.signal.aborted) throw problem;
+      }
     } catch (problem) {
       if (!controller.signal.aborted) {
         current = [...current, { id: newId(), from: "error", text: reason(problem), at: Date.now() }];
@@ -420,18 +442,29 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     } finally {
       stop.current = null;
       setLive(null);
+      if (fromMic.current && !controller.signal.aborted) {
+        if (settings.speak) speaker.whenQuiet(handBack);
+        else handBack();
+      }
     }
   };
 
-  const send = (text = draft) => {
+  const send = (text = draft, via: "type" | "mic" = "type") => {
     const words = text.trim();
     if (!words || live) return;
     const thread = [...messages, { id: newId(), from: "you", text: words, at: Date.now() }];
+    fromMic.current = via === "mic";
     speaker.stop();
     setNotice("");
+    setTurn(false);
     setMessages(thread);
     setDraft("");
     void run(null, thread, words, target);
+  };
+
+  const ask = (expert: Expert) => {
+    setTarget(expert.id);
+    box.current?.focus();
   };
 
   const again = () => {
@@ -478,7 +511,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       }}>
         {messages.length === 0 && !live && (
           <div className="empty">
-            <p>Ask anything. Name someone to ask only them, or say "everyone" for a round.</p>
+            <p>Ask anything. Room picks two people who talk to each other. Name someone to bring only them in, or say "everyone" for the whole table.</p>
             {SUGGESTIONS.map((suggestion) => (
               <button key={suggestion} onClick={() => send(suggestion)}>{suggestion}</button>
             ))}
@@ -491,11 +524,18 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
           if (!expert) return null;
           return (
             <div key={message.id} className="said">
-              <Avatar expert={expert} />
-              <div className={speaking === message.id ? "bubble theirs speaking" : "bubble theirs"} style={speaking === message.id ? { borderColor: expert.colour } : undefined} onClick={() => replay(message)}>
-                <b style={{ color: expert.colour }}>{expert.name}</b>
-                {message.text}
-                {speaking === message.id && <span className="wave" style={{ color: expert.colour }}><i /><i /><i /><i /></span>}
+              <button className="face-btn" onClick={() => ask(expert)} aria-label={`Message ${expert.short}`}>
+                <Avatar expert={expert} />
+              </button>
+              <div>
+                <div className={speaking === message.id ? "bubble theirs speaking" : "bubble theirs"} style={speaking === message.id ? { borderColor: expert.colour } : undefined} onClick={() => replay(message)}>
+                  <b style={{ color: expert.colour }}>{expert.name}</b>
+                  {message.text}
+                  {speaking === message.id && <span className="wave" style={{ color: expert.colour }}><i /><i /><i /><i /></span>}
+                </div>
+                <button className="ask" onClick={() => ask(expert)}>
+                  Ask {expert.short}
+                </button>
               </div>
             </div>
           );
@@ -513,9 +553,21 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         {retry && !live && (
           <button className="ghost retry" onClick={again}>Try again</button>
         )}
+        {more && !live && !retry && (
+          <button className="ghost retry" onClick={() => {
+            const who = more;
+            setMore(null);
+            void run(who, messages, "", "auto");
+          }}>Anyone else?</button>
+        )}
       </div>
 
       <footer className="composer">
+        {turn && mic === "off" && !live && (
+          <button className="turn" onClick={() => void listen()}>
+            Your turn
+          </button>
+        )}
         {notice && (
           <div className="notice">
             <span onClick={() => setNotice("")}>{notice}</span>

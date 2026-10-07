@@ -29,22 +29,18 @@ const HEARING_MODEL = "gpt-4o-mini-transcribe";
 const FISH_SPEECH = "https://api.fish.audio/v1/tts";
 /// fish.audio's free tier of its newest voice model, the one Gleam uses: it needs no API credit.
 const FISH_MODEL = "s2.1-pro-free";
-/// Speech is paid by length and a long answer is tiring to hear; past this the gist is spoken.
-const LONGEST_SPOKEN = 900;
+/// Speech is paid by length and a long answer is tiring to hear; two sentences is enough in the ear.
+const SPOKEN_SENTENCES = 2;
 
 /// The words a voice should read: no emojis, no asterisks around actions, no stray spacing.
 export function forSpeech(text: string): string {
-  let spoken = text
+  const spoken = text
     .replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}\u{20E3}]/gu, "")
     .replace(/\*/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (spoken.length > LONGEST_SPOKEN) {
-    spoken = spoken.slice(0, LONGEST_SPOKEN);
-    const stop = Math.max(spoken.lastIndexOf(". "), spoken.lastIndexOf("! "), spoken.lastIndexOf("? "));
-    if (stop > 0) spoken = spoken.slice(0, stop + 1);
-  }
-  return spoken;
+  const sentences = spoken.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return sentences.slice(0, SPOKEN_SENTENCES).join(" ");
 }
 
 /// A fish.audio voice id is 32 hex characters; people paste the voice page's link as often as the
@@ -77,7 +73,7 @@ export async function say(text: string, expert: Expert, settings: Settings, sign
       ? await post({
           url: FISH_SPEECH,
           headers: { authorization: `Bearer ${settings.fishKey.trim()}`, model: FISH_MODEL },
-          json: { text: spoken, format: "mp3", mp3_bitrate: 192, latency: "low", reference_id: fish },
+          json: { text: spoken, format: "mp3", mp3_bitrate: 192, latency: "low", temperature: 0.78, reference_id: fish },
           want: "blob",
           signal,
         })
@@ -126,6 +122,14 @@ export class Speaker {
   private round = 0;
 
   constructor(private readonly onSpeaking: (id: string | null) => void) {}
+
+  /// Runs after everything already queued has finished or failed, unless `stop` was called.
+  whenQuiet(then: () => void) {
+    const round = this.round;
+    this.chain = this.chain.then(() => {
+      if (round === this.round) then();
+    });
+  }
 
   /// Queues audio that may still be on its way; it plays once everything before it has finished.
   queue(id: string, audio: Promise<Blob>) {

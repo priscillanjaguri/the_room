@@ -259,6 +259,36 @@ main {
   max-width: 92%;
 }
 
+.said > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.face-btn {
+  flex: none;
+  padding: 0;
+  background: none;
+}
+
+.ask {
+  align-self: flex-start;
+  margin: 2px 0 0 4px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.turn {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 600;
+}
+
 .bubble {
   padding: 9px 13px 10px;
   border-radius: 18px;
