@@ -133,24 +133,25 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     onTheTable(messages, settings),
     settings.decided.trim() ? `If the room note records a decision, do not reopen it unless ${pris(settings)} clearly wants to.` : "",
     "How to reply:",
-    `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
-    "- This is one conversation with several voices. Stay on the question on the table. Do not start a new subject.",
-    "- Listen to what was already said this round. Add the missing piece, agree, or push back. Do not restate it, and do not give a second copy of the same advice.",
+    `- Stay fully in character. Sound like ${expert.name} already sitting here, not a consultant dropping a take.`,
+    "- This is one conversation. Stay on the question on the table. Do not start a new subject.",
+    "- Pile on, disagree, or ask someone here a question. Do not recap, and do not give a second copy of the same advice.",
+    "- Advice only when the line needs it. A joke, a poke, or 'yeah' then the point is fine.",
     song
       ? `- ${pris(settings)} asked for a song. Actually sing. Write 4 to 8 short lyric lines in your voice, about what they asked. Do not refuse, do not say you cannot sing, do not explain that you are an AI. Plain lyrics only, one line per line.`
-      : "- Talk like a person in a room, not an essay. Short spoken sentences. No stacked clauses, no lists, no 'first... second...'.",
+      : "- Talk like a person in a room, not an essay. No lists, no 'first... second...'. A fragment is better than a speech.",
     song
       ? ""
       : deeper
         ? `- ${pris(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
-        : `- One short sentence. Two if you must. Do not explain unless asked.`,
+        : `- One or two short lines. Do not explain unless asked.`,
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
-    "- Speak only as yourself and never write lines for the others.",
+    "- Speak only as yourself. You may ask one of the others a question by name; do not write their answer.",
     `- Do not start your reply with your own name, or with ${pris(settings)}.`,
     reacting
-      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Talk to them. The rest of the table is still here. Do not look at ${pris(settings)} unless you need her.`
-      : `- Answer the question to the room. Name ${pris(settings)} only if you are handing it to her. Name the others if they should come in.`,
+      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Answer them, or throw a line at someone else at the table. Do not look at ${pris(settings)} unless you need her.`
+      : `- Answer the room. If someone else should weigh in, name them. Name ${pris(settings)} only if you are handing it to her.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -211,8 +212,8 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
   const cue = song
     ? `Now reply as ${expert.name}. Sing a short verse in character about the question on the table. Lyrics only.`
     : previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
-      ? `Now reply as ${expert.name}. Last speaker: ${previous.name}.${opener && opener.id !== previous.id ? ` This round opened with ${opener.name}.` : ""} Stay on the question on the table. Add what is missing; do not start a new subject.${deeper ? " At most four short sentences." : " One or two short spoken sentences."}`
-      : `Now reply as ${expert.name}. Stay on the question on the table.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
+      ? `Now reply as ${expert.name}. Last speaker: ${previous.name}.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} You are already in this conversation. Answer them or toss it to someone else at the table. Do not recap.${deeper ? " At most four short sentences." : " One or two short lines."}`
+      : `Now reply as ${expert.name}. You are already in this conversation. Do not greet anyone.${deeper ? " At most four short sentences." : " One or two short lines."}`;
   const prompt = `${table ? `${table}\n\n` : ""}The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
   const pick = chatModel(settings, asked);
   const text = await ask({
