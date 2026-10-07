@@ -4,8 +4,12 @@ import type { Message, Settings } from "./store";
 
 /// How much of the thread each reply sees.
 const REMEMBERED = 40;
-/// Generous, because the limit also covers the model's hidden reasoning; the prompt keeps replies short.
-const REPLY_TOKENS = 1500;
+/// Short replies; the limit also covers hidden reasoning.
+const SHORT_TOKENS = 500;
+/// Only when QH asks for more detail.
+const LONG_TOKENS = 1500;
+
+const MORE = /\b(more|detail|details|explain|elaborate|expand|deeper|why\b|how come|break (it|that) down|go on|keep going|say more|tell me more|walk me through|examples?|step by step|what do you mean)\b/i;
 
 /// Who a message goes to: the room decides, everyone, or one expert's id.
 export type Target = "auto" | "everyone" | string;
@@ -34,12 +38,23 @@ function lastSpeaker(messages: Message[]): Expert | undefined {
   }
 }
 
+function lastAsk(messages: Message[]): string {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].from === "you") return messages[index].text;
+  }
+  return "";
+}
+
+/// QH asked for depth, so this turn can run long.
+export const wantsMore = (text: string) => MORE.test(text);
+
 function system(expert: Expert, settings: Settings, messages: Message[]): string {
   const others = EXPERTS.filter((one) => one.id !== expert.id)
     .map((one) => `${one.name} (${one.craft})`)
     .join(", ");
   const previous = lastSpeaker(messages.filter((message) => message.from !== expert.id));
   const reacting = previous && messages.at(-1)?.from !== "you";
+  const deeper = wantsMore(lastAsk(messages));
   return [
     `You are ${expert.name}, whose craft is ${expert.craft}, in a private group chat called "The room" on ${you(settings)}'s phone.`,
     `Also in the room: ${others}. ${you(settings)} runs the meeting and makes the calls.`,
@@ -48,13 +63,15 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     settings.decided.trim() ? `The room's current note: ${settings.decided.trim()} If this records a decision, do not reopen it unless ${you(settings)} clearly wants to.` : "",
     "How to reply:",
     `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
-    "- This is a phone chat. Two to four short sentences. No speeches.",
+    deeper
+      ? `- ${you(settings)} asked for more. Give a real answer: up to six short sentences, with the why. Still no speeches.`
+      : `- Default length: one or two short sentences. A third only if you must. Do not explain unless asked. If they want depth they will say so.`,
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
     reacting
-      ? `- The last person to speak was ${previous.name}. Talk to them by name. Agree, steal the point, or push back. Do not repeat what they just said, and do not give ${you(settings)} a second copy of the same advice.`
+      ? `- The last person to speak was ${previous.name}. Talk to them by name. Agree, steal the point, or push back. Do not repeat what they just said, and do not give ${you(settings)} a second copy of the same advice.${deeper ? "" : " One line is enough."}`
       : `- Answer ${you(settings)}. You can mention the others by name if you want them to come in.`,
   ]
     .filter(Boolean)
@@ -75,7 +92,15 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
       ? `Now reply as ${expert.name} to ${previous.name}. Talk to them, not past them.`
       : `Now reply as ${expert.name}.`;
   const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
-  const text = await ask({ key: settings.key, model: settings.model, system: system(expert, settings, messages), prompt, maxTokens: REPLY_TOKENS, signal, onText: (soFar) => onText(clean(soFar, expert)) });
+  const text = await ask({
+    key: settings.key,
+    model: settings.model,
+    system: system(expert, settings, messages),
+    prompt,
+    maxTokens: wantsMore(lastAsk(messages)) ? LONG_TOKENS : SHORT_TOKENS,
+    signal,
+    onText: (soFar) => onText(clean(soFar, expert)),
+  });
   return clean(text, expert);
 }
 

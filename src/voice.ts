@@ -43,6 +43,12 @@ export function forSpeech(text: string): string {
   return sentences.slice(0, SPOKEN_SENTENCES).join(" ");
 }
 
+/// Enough of a reply is in to start the voice without waiting for the rest to finish typing.
+export function speechReady(text: string): boolean {
+  const spoken = forSpeech(text);
+  return spoken.split(/(?<=[.!?])\s+/).filter(Boolean).length >= SPOKEN_SENTENCES;
+}
+
 /// A fish.audio voice id is 32 hex characters; people paste the voice page's link as often as the
 /// id, so the id is found inside whatever was pasted.
 export function fishVoiceIn(pasted: string): string {

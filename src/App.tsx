@@ -4,7 +4,7 @@ import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { note, reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
-import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
+import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker, speechReady } from "./voice";
 
 /// A recording stops by itself after this, so a forgotten mic doesn't run up a bill.
 const LONGEST_RECORDING = 120;
@@ -276,6 +276,15 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const [more, setMore] = useState<string[] | null>(null);
   const [turn, setTurn] = useState(false);
   const fromMic = useRef(false);
+  /// Message ids whose text is held back until the voice actually starts, so they don't type first.
+  const [held, setHeld] = useState<Set<string>>(() => new Set());
+  const unhold = (id: string) =>
+    setHeld((all) => {
+      if (!all.has(id)) return all;
+      const next = new Set(all);
+      next.delete(id);
+      return next;
+    });
   const stop = useRef<AbortController | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -292,6 +301,9 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   useEffect(() => saveMessages(messages), [messages]);
   useEffect(() => saveSettings(settings), [settings]);
   useEffect(() => () => speaker.stop(), [speaker]);
+  useEffect(() => {
+    if (speaking) unhold(speaking);
+  }, [speaking]);
 
   useEffect(() => {
     if (mic !== "on") return;
@@ -335,15 +347,16 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     );
 
   /// Reads a reply aloud after anything already playing. The audio is kept so a replay is free.
-  const speak = (message: Message, use = settings) => {
+  const speak = (message: Message, use = settings, signal?: AbortSignal) => {
     const expert = byId(message.from);
     if (!expert) return;
     let audio = spoken.current.get(message.id);
     if (!audio) {
-      audio = say(message.text, expert, use);
+      audio = say(message.text, expert, use, signal);
       spoken.current.set(message.id, audio);
       audio.catch((problem) => {
         spoken.current.delete(message.id);
+        unhold(message.id);
         setNotice(reason(problem));
       });
     }
@@ -418,12 +431,32 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       }
       while (queue.length) {
         const expert = byId(queue[0])!;
+        const id = newId();
+        let kicked = false;
+        const upsert = (text: string) => {
+          const message: Message = { id, from: expert.id, text: text || "...", at: Date.now() };
+          current = current.some((known) => known.id === id) ? current.map((known) => (known.id === id ? message : known)) : [...current, message];
+          setMessages(current);
+          return message;
+        };
         setLive({ who: expert.id, text: "" });
-        const said = await reply(expert, current, settings, controller.signal, (soFar) => setLive({ who: expert.id, text: soFar }));
-        const message: Message = { id: newId(), from: expert.id, text: said || "...", at: Date.now() };
-        current = [...current, message];
-        setMessages(current);
-        if (settings.speak && said) speak(message);
+        const said = await reply(expert, current, settings, controller.signal, (soFar) => {
+          if (!settings.speak) return setLive({ who: expert.id, text: soFar });
+          if (!kicked && speechReady(soFar)) {
+            kicked = true;
+            setHeld((all) => new Set(all).add(id));
+            speak(upsert(soFar), settings, controller.signal);
+            setLive(null);
+          } else if (kicked) {
+            upsert(soFar);
+          }
+        });
+        const message = upsert(said || "...");
+        if (settings.speak && !kicked && said) {
+          setHeld((all) => new Set(all).add(id));
+          speak(message, settings, controller.signal);
+        }
+        setLive(null);
         queue = queue.slice(1);
       }
       if (later.length) setMore(later);
@@ -476,6 +509,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
 
   const liveExpert = live?.who ? byId(live.who) : undefined;
   const speakingExpert = speaking ? byId(messages.find((message) => message.id === speaking)?.from ?? "") : undefined;
+  const waitingExpert = [...held].map((id) => byId(messages.find((message) => message.id === id)?.from ?? "")).find(Boolean);
   const chips: [Target, string][] = [["auto", "Room picks"], ["everyone", "Everyone"], ...EXPERTS.map((expert): [Target, string] => [expert.id, expert.short])];
 
   return (
@@ -488,7 +522,17 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         </div>
         <div className="title">
           <h2>The room</h2>
-          <span>{live ? (liveExpert ? `${liveExpert.short} is typing...` : "choosing who answers...") : speakingExpert ? `${speakingExpert.short} is speaking...` : "Rick, Harvey, Jack, Steve"}</span>
+          <span>
+            {live
+              ? liveExpert
+                ? `${liveExpert.short} is ${settings.speak ? "talking" : "typing"}...`
+                : "choosing who answers..."
+              : speakingExpert
+                ? `${speakingExpert.short} is speaking...`
+                : waitingExpert
+                  ? `${waitingExpert.short} is talking...`
+                  : "Rick, Harvey, Jack, Steve"}
+          </span>
         </div>
         <button className={settings.speak ? "icon" : "icon muted"} onClick={toggleVoice} aria-label={settings.speak ? "Turn voices off" : "Turn voices on"}>
           <svg viewBox="0 0 24 24" width="22" height="22">
@@ -511,7 +555,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       }}>
         {messages.length === 0 && !live && (
           <div className="empty">
-            <p>Ask anything. Room picks two people who talk to each other. Name someone to bring only them in, or say "everyone" for the whole table.</p>
+            <p>Ask anything. They keep it short. Say "tell me more" when you want the why. Name someone to bring only them in, or say "everyone" for the whole table.</p>
             {SUGGESTIONS.map((suggestion) => (
               <button key={suggestion} onClick={() => send(suggestion)}>{suggestion}</button>
             ))}
@@ -530,7 +574,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
               <div>
                 <div className={speaking === message.id ? "bubble theirs speaking" : "bubble theirs"} style={speaking === message.id ? { borderColor: expert.colour } : undefined} onClick={() => replay(message)}>
                   <b style={{ color: expert.colour }}>{expert.name}</b>
-                  {message.text}
+                  {held.has(message.id) ? <span className="dots"><i /><i /><i /></span> : message.text}
                   {speaking === message.id && <span className="wave" style={{ color: expert.colour }}><i /><i /><i /><i /></span>}
                 </div>
                 <button className="ask" onClick={() => ask(expert)}>
