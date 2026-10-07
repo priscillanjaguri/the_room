@@ -369,9 +369,10 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     );
 
   /// Reads a reply aloud after anything already playing. The audio is kept so a replay is free.
+  /// Resolves when this line has finished playing, not when the file merely arrives.
   const speak = (message: Message, use = settings, signal?: AbortSignal, laugh = false) => {
     const expert = byId(message.from);
-    if (!expert) return;
+    if (!expert) return Promise.resolve();
     let audio = spoken.current.get(message.id);
     if (!audio) {
       audio = say(message.text, expert, use, signal, laugh);
@@ -382,7 +383,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         setNotice(reason(problem));
       });
     }
-    speaker.queue(message.id, audio);
+    return speaker.queue(message.id, audio);
   };
 
   /// Tapping a reply plays it, or stops it if it is the one playing.
@@ -435,6 +436,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
 
   /// Runs the experts in turn; each one sees what the ones before it said.
   const run = async (who: string[] | null, thread: Message[], text: string, chosen: Target) => {
+    stop.current?.abort();
     const controller = new AbortController();
     stop.current = controller;
     setRetry(null);
@@ -457,25 +459,21 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
           { once: true },
         );
       });
-    const stamp = async (target: Message) => {
-      try {
-        const incoming = await feelings(target, current, settings, controller.signal);
-        for (const one of incoming) {
-          if (controller.signal.aborted) return;
-          const emoji = emojiOf(one.react);
-          if (!emoji) continue;
-          current = current.map((known) => (known.id === target.id ? { ...known, reactions: setReaction(known.reactions, one.from, emoji) } : known));
-          setWhoosh((all) => new Set(all).add(`${target.id}:${one.from}`));
-          setMessages(current);
-          await wait(180);
-        }
-      } catch (problem) {
-        if (controller.signal.aborted) throw problem;
+    const stamp = async (target: Message, incoming: { from: string; react: string }[]) => {
+      for (const one of incoming) {
+        if (controller.signal.aborted) return;
+        const emoji = emojiOf(one.react);
+        if (!emoji) continue;
+        current = current.map((known) => (known.id === target.id ? { ...known, reactions: setReaction(known.reactions, one.from, emoji) } : known));
+        setWhoosh((all) => new Set(all).add(`${target.id}:${one.from}`));
+        setMessages(current);
+        await wait(260);
       }
     };
+    const gather = (target: Message) => feelings(target, current, settings, controller.signal).catch(() => [] as { from: string; react: string }[]);
     try {
       const last = current.at(-1);
-      const painted = last && last.from !== "error" ? stamp(last) : Promise.resolve();
+      const painted = last && last.from !== "error" ? gather(last).then((incoming) => stamp(last, incoming)) : Promise.resolve();
       if (!who) {
         setLive({ who: "", text: "" });
         const round = await speakers(chosen, text, thread, settings, controller.signal);
@@ -496,14 +494,16 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         current = [...current, message];
         setMessages(current);
         setLive(null);
-        const whooshing = stamp(message);
+        const listening = gather(message);
         if (settings.speak && said.text) {
           setHeld((all) => new Set(all).add(id));
-          speak(message, settings, controller.signal, laughed);
-          const audio = spoken.current.get(id);
-          if (audio) await audio.catch(() => {});
+          await speak(message, settings, controller.signal, laughed);
+        } else {
+          await wait(400);
         }
-        await whooshing;
+        if (controller.signal.aborted) return;
+        await wait(280);
+        await stamp(message, await listening);
         queue = queue.slice(1);
       }
       if (later.length) setMore(later);
@@ -520,11 +520,13 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         setRetry(queue.length ? queue : null);
       }
     } finally {
-      stop.current = null;
-      setLive(null);
-      if (fromMic.current && !controller.signal.aborted) {
-        if (settings.speak) speaker.whenQuiet(handBack);
-        else handBack();
+      if (stop.current === controller) stop.current = null;
+      if (!controller.signal.aborted) {
+        setLive(null);
+        if (fromMic.current) {
+          if (settings.speak) speaker.whenQuiet(handBack);
+          else handBack();
+        }
       }
     }
   };

@@ -142,9 +142,10 @@ export class Speaker {
   }
 
   /// Queues audio that may still be on its way; it plays once everything before it has finished.
-  queue(id: string, audio: Promise<Blob>) {
+  /// Resolves when that line has actually been heard, or skipped.
+  queue(id: string, audio: Promise<Blob>): Promise<void> {
     const round = this.round;
-    this.chain = this.chain.then(async () => {
+    const finished = this.chain.then(async () => {
       let blob: Blob;
       try {
         blob = await audio;
@@ -153,6 +154,8 @@ export class Speaker {
       }
       if (round === this.round) await this.play(id, blob, round);
     });
+    this.chain = finished;
+    return finished.then(() => undefined);
   }
 
   /// Stops whatever is playing and forgets what was queued.
