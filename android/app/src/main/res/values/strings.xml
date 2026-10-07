@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">The room</string>
+    <string name="title_activity_main">The room</string>
+    <string name="package_name">app.gleam.room</string>
+    <string name="custom_url_scheme">app.gleam.room</string>
+</resources>
