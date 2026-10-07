@@ -60,6 +60,31 @@ function firstAfterAsk(messages: Message[]): Expert | undefined {
   }
 }
 
+/// From QH's last message through now, so everyone is on the same round.
+function thisRound(messages: Message[]): Message[] {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index].from === "you") return messages.slice(index);
+  }
+  return messages.slice(-8);
+}
+
+/// The shared frame every speaker gets, so they do not each start a new chat.
+function onTheTable(messages: Message[], settings: Settings): string {
+  const asked = lastAsk(messages);
+  const lines: string[] = [];
+  if (asked) lines.push(`The question on the table, from ${you(settings)}: ${asked}`);
+  if (settings.decided.trim()) lines.push(`What the room already settled: ${settings.decided.trim()}`);
+  const spoken = thisRound(messages)
+    .filter((message) => message.from !== "you" && message.from !== "error" && byId(message.from))
+    .map((message) => {
+      const clip = message.text.replace(/\s+/g, " ").trim();
+      const short = clip.length > 160 ? `${clip.slice(0, 157)}...` : clip;
+      return `${byId(message.from)!.short}: ${short}`;
+    });
+  if (spoken.length) lines.push(`Already said since that question:\n${spoken.join("\n")}`);
+  return lines.join("\n");
+}
+
 /// QH asked for depth, so this turn can run long.
 export const wantsMore = (text: string) => MORE.test(text);
 
@@ -96,10 +121,13 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     `You are ${expert.name}, whose craft is ${expert.craft}, in a private group chat called "The room" on ${you(settings)}'s phone.`,
     `Also in the room: ${others}. ${you(settings)} runs the meeting and makes the calls.`,
     expert.personality,
-    `Your job in this room: ${expert.job} Stay in that lane. Do not do the others' jobs.`,
-    settings.decided.trim() ? `The room's current note: ${settings.decided.trim()} If this records a decision, do not reopen it unless ${you(settings)} clearly wants to.` : "",
+    `Your job in this room: ${expert.job} Bring that lens only when it helps the question on the table. If it does not apply, stay in this conversation as yourself anyway. Do not hijack the topic to your specialty.`,
+    onTheTable(messages, settings),
+    settings.decided.trim() ? `If the room note records a decision, do not reopen it unless ${you(settings)} clearly wants to.` : "",
     "How to reply:",
     `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
+    "- This is one conversation with several voices. Stay on the question on the table. Do not start a new subject.",
+    "- Listen to what was already said this round. Add the missing piece, agree, or push back. Do not restate it, and do not give a second copy of the same advice.",
     song
       ? `- ${you(settings)} asked for a song. Actually sing. Write 4 to 8 short lyric lines in your voice, about what they asked. Do not refuse, do not say you cannot sing, do not explain that you are an AI. Plain lyrics only, one line per line.`
       : "- Talk like a person in a room, not an essay. Short spoken sentences. No stacked clauses, no lists, no 'first... second...'.",
@@ -113,8 +141,8 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
     reacting
-      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} You can answer ${previous.name}, pick up what ${you(settings)} originally asked, or do both. If an earlier point was the real one, talk to that. Do not only bounce off the last line, and do not give ${you(settings)} a second copy of the same advice.`
-      : `- Answer ${you(settings)}. You can mention the others by name if you want them to come in.`,
+      ? `- ${previous.name} just spoke.${opener && opener.id !== previous.id ? ` ${opener.name} opened this round.` : ""} Answer them, pick up ${you(settings)}'s question, or both — but keep it the same conversation.`
+      : `- Answer ${you(settings)} on the question on the table. You can mention the others by name if you want them to come in.`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -168,12 +196,13 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
   const deeper = wantsMore(asked);
   const song = wantsSong(asked);
   const longest = song ? 8 : deeper ? 4 : 2;
+  const table = onTheTable(messages, settings);
   const cue = song
-    ? `Now reply as ${expert.name}. Sing a short verse in character about what ${you(settings)} asked. Lyrics only.`
+    ? `Now reply as ${expert.name}. Sing a short verse in character about the question on the table. Lyrics only.`
     : previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
-      ? `Now reply as ${expert.name}. Last speaker: ${previous.name}.${opener && opener.id !== previous.id ? ` This round opened with ${opener.name}.` : ""} Original ask was from ${you(settings)}. You may answer any of them, or more than one.${deeper ? " At most four short sentences." : " One or two short spoken sentences."}`
-      : `Now reply as ${expert.name}.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
-  const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
+      ? `Now reply as ${expert.name}. Last speaker: ${previous.name}.${opener && opener.id !== previous.id ? ` This round opened with ${opener.name}.` : ""} Stay on the question on the table. Add what is missing; do not start a new subject.${deeper ? " At most four short sentences." : " One or two short spoken sentences."}`
+      : `Now reply as ${expert.name}. Stay on the question on the table.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
+  const prompt = `${table ? `${table}\n\n` : ""}The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
   const pick = chatModel(settings, asked);
   const text = await ask({
     key: settings.key,
@@ -242,7 +271,7 @@ async function best(messages: Message[], settings: Settings, signal: AbortSignal
       key: settings.key,
       model: QUICK_MODEL,
       system: "You pick who answers next in a group chat. Reply with exactly one first name and nothing else.",
-      prompt: `The people:\n${roster}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nWho is best placed to answer the last message? One of: ${EXPERTS.map((one) => one.short).join(", ")}.`,
+      prompt: `The people:\n${roster}\n\n${onTheTable(messages, settings)}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nWho is best placed to answer the question on the table? One of: ${EXPERTS.map((one) => one.short).join(", ")}.`,
       maxTokens: 80,
       signal,
     });
@@ -268,8 +297,8 @@ async function pair(messages: Message[], settings: Settings, signal: AbortSignal
     const text = await ask({
       key: settings.key,
       model: QUICK_MODEL,
-      system: "You pick two people for a short group-chat round. Reply with two different first names, comma separated, nothing else: who answers first, then who talks back to them.",
-      prompt: `The people:\n${roster}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nWho answers first, and who talks back? Two of: ${EXPERTS.map((one) => one.short).join(", ")}.`,
+      system: "You pick two people who can stay on the same question in a group chat. Reply with two different first names, comma separated, nothing else: who answers first, then who adds to that without changing the subject.",
+      prompt: `The people:\n${roster}\n\n${onTheTable(messages, settings)}\n\nThe conversation:\n\n${transcript(messages.slice(-12), settings)}\n\nWho answers the question on the table first, and who should talk next on that same question? Two of: ${EXPERTS.map((one) => one.short).join(", ")}.`,
       maxTokens: 80,
       signal,
     });
