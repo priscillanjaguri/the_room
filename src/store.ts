@@ -53,7 +53,8 @@ function write(name: string, value: unknown) {
 
 export function loadSettings(): Settings {
   const saved = read<Partial<Settings>>(SETTINGS, {});
-  const model = MODELS.some(([id]) => id === saved.model) ? saved.model! : DEFAULT_MODEL;
+  /// Old installs stored gpt-5-mini as the default; that now means Auto.
+  const model = saved.model === "gpt-5-mini" || !saved.model || !MODELS.some(([id]) => id === saved.model) ? DEFAULT_MODEL : saved.model;
   // An Anthropic key from the first version of the app means nothing to OpenAI.
   const key = saved.key?.startsWith("sk-ant-") ? "" : saved.key ?? "";
   const voices = Object.fromEntries(EXPERTS.map((expert) => [expert.id, expert.voice.fish]));

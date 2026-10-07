@@ -184,6 +184,7 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
             ))}
           </select>
         </label>
+        <p className="hint">Auto keeps banter on the cheap model and switches to GPT-5 for decisions, plans, and “why”.</p>
         {status && <p className={status.ok ? "ok-text" : "error-text"}>{status.text}</p>}
         <div className="row">
           <button className="ghost" disabled={checking || !draft.key.trim()} onClick={() => void test()}>{checking ? "Testing..." : "Test key"}</button>

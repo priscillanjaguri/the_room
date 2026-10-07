@@ -3,16 +3,25 @@ import { Capacitor, CapacitorHttp } from "@capacitor/core";
 const CHAT_URL = "https://api.openai.com/v1/chat/completions";
 const MODELS_URL = "https://api.openai.com/v1/models";
 
+export const QUICK_MODEL = "gpt-5-mini";
+export const SHARP_MODEL = "gpt-5";
+export const AUTO_MODEL = "auto";
 export const MODELS: [string, string][] = [
-  ["gpt-5-mini", "GPT-5 mini (quick, cheapest)"],
-  ["gpt-5", "GPT-5 (sharper, slower)"],
+  [AUTO_MODEL, "Auto (mini for chat, GPT-5 when it needs a brain)"],
+  ["mini", "Always GPT-5 mini (quick, cheapest)"],
+  [SHARP_MODEL, "Always GPT-5 (sharper, slower)"],
 ];
-export const DEFAULT_MODEL = MODELS[0][0];
-/// Choosing who speaks next is a one-word job, so it always uses the quickest model.
-export const QUICK_MODEL = MODELS[0][0];
+export const DEFAULT_MODEL = AUTO_MODEL;
 export const KEY_PAGE = "https://platform.openai.com/api-keys";
 
-export class BrainError extends Error {}
+export class BrainError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}
 
 interface Ask {
   key: string;
@@ -21,6 +30,10 @@ interface Ask {
   prompt: string;
   /// Covers the model's hidden reasoning as well as the words it sends back.
   maxTokens: number;
+  /// How hard the model thinks. Banter stays minimal; hard questions step up.
+  effort?: "minimal" | "low" | "medium";
+  /// If this model is missing on the key, try this one instead.
+  fallback?: string;
   signal?: AbortSignal;
   /// Called with the whole reply so far, each time more of it arrives.
   onText?: (soFar: string) => void;
@@ -37,7 +50,7 @@ function problem(status: number, body: unknown): BrainError {
   const error = (body as { error?: { message?: string; code?: string } } | null)?.error;
   if (status === 401) return new BrainError("OpenAI refused that API key. Check that you copied all of it.");
   if (error?.code === "insufficient_quota") return new BrainError("Your OpenAI credit has run out. Add credit at platform.openai.com.");
-  if (status === 404 || error?.code === "model_not_found") return new BrainError("This API key cannot use that model. Pick the other one in Settings.");
+  if (status === 404 || error?.code === "model_not_found") return new BrainError("This API key cannot use that model. Pick the other one in Settings.", "model_not_found");
   if (status === 429) return new BrainError("Too many requests right now. Wait a moment and try again.");
   if (status >= 500) return new BrainError("OpenAI is busy. Try again in a moment.");
   return new BrainError(error?.message || `OpenAI answered with error ${status}.`);
@@ -49,13 +62,12 @@ function aborted(signal?: AbortSignal): Promise<never> {
   return new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new DOMException("Stopped", "AbortError")), { once: true }));
 }
 
-function body({ model, system, prompt, maxTokens }: Ask, stream: boolean) {
+function body({ model, system, prompt, maxTokens, effort }: Ask, stream: boolean) {
   return {
     model,
     stream,
     max_completion_tokens: maxTokens,
-    // A chat reply needs little thinking, and minimal effort keeps the wait short.
-    reasoning_effort: "minimal",
+    reasoning_effort: effort ?? "minimal",
     messages: [
       { role: "developer", content: system },
       { role: "user", content: prompt },
@@ -120,8 +132,7 @@ async function native(ask: Ask): Promise<string> {
   return text;
 }
 
-/// Sends one prompt and returns the whole reply, streaming it through `onText` when it can.
-export async function ask(request: Ask): Promise<string> {
+async function send(request: Ask): Promise<string> {
   if (direct) {
     try {
       return await streamed(request);
@@ -133,6 +144,18 @@ export async function ask(request: Ask): Promise<string> {
     }
   }
   return native(request);
+}
+
+/// Sends one prompt and returns the whole reply, streaming it through `onText` when it can.
+export async function ask(request: Ask): Promise<string> {
+  try {
+    return await send(request);
+  } catch (error) {
+    if (request.fallback && request.fallback !== request.model && error instanceof BrainError && error.code === "model_not_found") {
+      return send({ ...request, model: request.fallback, effort: "minimal", fallback: undefined });
+    }
+    throw error;
+  }
 }
 
 async function models(key: string): Promise<{ status: number; data: unknown }> {
@@ -158,5 +181,6 @@ export async function check(key: string, model: string): Promise<void> {
   const { status, data } = await models(key);
   if (status < 200 || status >= 300) throw problem(status, data);
   const ids = ((data as { data?: { id: string }[] } | null)?.data ?? []).map((one) => one.id);
-  if (ids.length && !ids.includes(model)) throw problem(404, null);
+  const needed = model === AUTO_MODEL || model === "mini" ? QUICK_MODEL : model;
+  if (ids.length && !ids.includes(needed)) throw problem(404, null);
 }

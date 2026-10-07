@@ -1,4 +1,4 @@
-import { ask, QUICK_MODEL } from "./openai";
+import { ask, QUICK_MODEL, SHARP_MODEL } from "./openai";
 import { byId, called, EXPERTS, type Expert } from "./experts";
 import type { Message, Settings } from "./store";
 
@@ -11,6 +11,8 @@ const LONG_TOKENS = 800;
 
 const MORE = /\b(more|detail|details|explain|elaborate|expand|deeper|why\b|how come|break (it|that) down|go on|keep going|say more|tell me more|walk me through|examples?|step by step|what do you mean)\b/i;
 const SONG = /\b(sing|song|songs|sang|sung|rap|rapping|lullaby|karaoke|melody|verse|chorus|ballad|jingle|serenade)\b/i;
+const BRAIN =
+  /\b(should i|do i\b|shall i|help me (decide|choose|pick|figure)|what would you do|why\b|how (do|can|should|would|to)\b|what's the (best|right|smart)|what is the (best|right)|explain|strategy|architect|trade.?off|pros and cons|worth it|quit|resign|raise\b|negotiat|invest|career|break.?up|decision|decide|plan for|roadmap)\b/i;
 
 /// Who a message goes to: the room decides, everyone, or one expert's id.
 export type Target = "auto" | "everyone" | string;
@@ -63,6 +65,22 @@ export const wantsMore = (text: string) => MORE.test(text);
 
 /// QH asked them to sing, so the reply is lyrics, not a spoken refusal.
 export const wantsSong = (text: string) => SONG.test(text);
+
+/// A real question, not banter — this is when the room steps up to GPT-5.
+export function needsBrain(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || wantsSong(trimmed)) return false;
+  if (wantsMore(trimmed) || BRAIN.test(trimmed)) return true;
+  return trimmed.length > 140 && trimmed.includes("?");
+}
+
+function chatModel(settings: Settings, asked: string): { model: string; effort: "minimal" | "low"; fallback?: string } {
+  const heavy = needsBrain(asked);
+  if (settings.model === QUICK_MODEL || settings.model === "mini") return { model: QUICK_MODEL, effort: "minimal" };
+  if (settings.model === SHARP_MODEL) return { model: SHARP_MODEL, effort: heavy ? "low" : "minimal", fallback: QUICK_MODEL };
+  if (heavy) return { model: SHARP_MODEL, effort: "low", fallback: QUICK_MODEL };
+  return { model: QUICK_MODEL, effort: "minimal" };
+}
 
 function system(expert: Expert, settings: Settings, messages: Message[]): string {
   const others = EXPERTS.filter((one) => one.id !== expert.id)
@@ -156,9 +174,12 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
       ? `Now reply as ${expert.name}. Last speaker: ${previous.name}.${opener && opener.id !== previous.id ? ` This round opened with ${opener.name}.` : ""} Original ask was from ${you(settings)}. You may answer any of them, or more than one.${deeper ? " At most four short sentences." : " One or two short spoken sentences."}`
       : `Now reply as ${expert.name}.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
   const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
+  const pick = chatModel(settings, asked);
   const text = await ask({
     key: settings.key,
-    model: settings.model,
+    model: pick.model,
+    effort: pick.effort,
+    fallback: pick.fallback,
     system: system(expert, settings, messages),
     prompt,
     maxTokens: song || deeper ? LONG_TOKENS : SHORT_TOKENS,
