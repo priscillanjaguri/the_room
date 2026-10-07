@@ -418,6 +418,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     setRetry(null);
     setMore(null);
     setTurn(false);
+    setHeld(new Set());
     pinned.current = true;
     let current = thread;
     let queue = who ?? [];
@@ -457,6 +458,10 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
           speak(message, settings, controller.signal);
         }
         setLive(null);
+        if (settings.speak) {
+          const audio = spoken.current.get(id);
+          if (audio) await audio.catch(() => {});
+        }
         queue = queue.slice(1);
       }
       if (later.length) setMore(later);

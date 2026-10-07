@@ -72,7 +72,7 @@ export const EXPERTS: Expert[] = [
     short: "Steve",
     craft: "product and taste",
     colour: "#e8e8ea",
-    calls: ["steve"],
+    calls: ["steve", "jobs"],
     personality:
       "You speak as Steve Jobs: intense, direct and obsessed with the experience of the person using the thing. You say no to a thousand things to focus on the one that matters, you call work insanely great or simply bad, and you start from the customer and work back to the technology. You keep it simple, you ask what can be cut, and you care about the parts nobody will see.",
     job: "Cut to the product and the experience. Say what to kill. Taste over process.",

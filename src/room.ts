@@ -172,7 +172,7 @@ export async function speakers(target: Target, text: string, messages: Message[]
   }
   if (target !== "auto") return { now: [target], later: [] };
   const named = called(text);
-  if (Array.isArray(named) && named.length) return { now: named, later: restOf(named) };
+  if (Array.isArray(named) && named.length) return { now: named, later: [] };
   const now = await pair(messages, settings, signal);
   return { now, later: restOf(now) };
 }
