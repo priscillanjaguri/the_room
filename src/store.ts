@@ -1,5 +1,6 @@
 import { EXPERTS } from "./experts";
 import { DEFAULT_MODEL, MODELS } from "./openai";
+import type { Reaction } from "./reacts";
 
 export interface Message {
   id: string;
@@ -7,6 +8,7 @@ export interface Message {
   from: string;
   text: string;
   at: number;
+  reactions?: Reaction[];
 }
 
 export interface Settings {

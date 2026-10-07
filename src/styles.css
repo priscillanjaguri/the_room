@@ -279,6 +279,74 @@ main {
   font-size: 12.5px;
 }
 
+.mine-wrap {
+  align-self: flex-end;
+  max-width: 82%;
+}
+
+.mine-wrap .reacts {
+  justify-content: flex-end;
+}
+
+.reacts {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.react,
+.react-tray .react {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.react.on {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface-2));
+}
+
+.react span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.react.add {
+  width: 26px;
+  padding: 0;
+  color: var(--muted);
+  justify-content: center;
+}
+
+.react-tray {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px #0008;
+}
+
+.mine-wrap .react-tray {
+  left: auto;
+  right: 0;
+}
+
 .turn {
   width: 100%;
   margin-bottom: 8px;

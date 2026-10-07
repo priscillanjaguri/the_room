@@ -71,6 +71,7 @@ function system(expert: Expert, settings: Settings, messages: Message[]): string
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others.",
     "- Do not start your reply with your own name.",
+    "- First line exactly: REACT laugh, REACT sad, REACT up, REACT down, REACT party, or REACT none. That is a WhatsApp reaction to the last message that was not yours. Use none unless it really landed. Then a blank line, then your spoken reply. Never mention the REACT line out loud.",
     reacting
       ? `- The last person to speak was ${previous.name}. Talk to them by name. Agree, steal the point, or push back. Do not repeat what they just said, and do not give ${you(settings)} a second copy of the same advice.${deeper ? "" : " One line is enough."}`
       : `- Answer ${you(settings)}. You can mention the others by name if you want them to come in.`,
@@ -91,8 +92,32 @@ function cap(text: string, sentences: number): string {
   return (parts.length <= sentences ? parts : parts.slice(0, sentences)).join(" ").trim();
 }
 
+/// Pulls the WhatsApp reaction off the first line so it never gets spoken or shown as chat.
+function peel(raw: string, expert: Expert): { text: string; react: string | null } {
+  const cleaned = clean(raw, expert);
+  const lines = cleaned.split("\n");
+  const match = lines[0]?.trim().match(/^REACT\s+(laugh|sad|up|down|party|none)\.?$/i);
+  if (!match) return { text: cleaned, react: null };
+  const id = match[1].toLowerCase();
+  return { text: lines.slice(1).join("\n").trim(), react: id === "none" ? null : id };
+}
+
+/// The spoken part only, so a half-typed REACT line does not flash on screen.
+function shown(raw: string, expert: Expert): string {
+  const cleaned = clean(raw, expert);
+  if (!/^REACT\b/i.test(cleaned)) return cleaned;
+  const breakAt = cleaned.indexOf("\n");
+  return breakAt < 0 ? "" : cleaned.slice(breakAt + 1).trim();
+}
+
+export interface Said {
+  text: string;
+  /// laugh, sad, up, down, party — or null if they let it pass.
+  react: string | null;
+}
+
 /// One expert's reply to the thread so far, streamed through `onText`.
-export async function reply(expert: Expert, messages: Message[], settings: Settings, signal: AbortSignal, onText: (text: string) => void): Promise<string> {
+export async function reply(expert: Expert, messages: Message[], settings: Settings, signal: AbortSignal, onText: (text: string) => void): Promise<Said> {
   const previous = lastSpeaker(messages);
   const deeper = wantsMore(lastAsk(messages));
   const longest = deeper ? 4 : 2;
@@ -100,7 +125,7 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
     previous && previous.id !== expert.id && messages.at(-1)?.from !== "you"
       ? `Now reply as ${expert.name} to ${previous.name}. Talk to them, not past them.${deeper ? " At most four short sentences." : " One short spoken sentence."}`
       : `Now reply as ${expert.name}.${deeper ? " At most four short sentences." : " One short spoken sentence."}`;
-  const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}`;
+  const prompt = `The conversation so far:\n\n${transcript(messages, settings)}\n\n${cue}\n\nFirst line: REACT none or REACT laugh/sad/up/down/party.`;
   const text = await ask({
     key: settings.key,
     model: settings.model,
@@ -108,9 +133,10 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
     prompt,
     maxTokens: deeper ? LONG_TOKENS : SHORT_TOKENS,
     signal,
-    onText: (soFar) => onText(cap(clean(soFar, expert), longest)),
+    onText: (soFar) => onText(cap(shown(soFar, expert), longest)),
   });
-  return cap(clean(text, expert), longest);
+  const peeled = peel(text, expert);
+  return { text: cap(peeled.text, longest), react: peeled.react };
 }
 
 function namesIn(text: string): string[] {

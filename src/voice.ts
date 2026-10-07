@@ -72,24 +72,25 @@ function speechProblem(service: "OpenAI" | "fish.audio", status: number, body: u
 
 /// One reply read aloud in the expert's voice: their fish.audio voice when they have one, OpenAI's
 /// voice with their speaking style otherwise. Returns the audio.
-export async function say(text: string, expert: Expert, settings: Settings, signal?: AbortSignal): Promise<Blob> {
+export async function say(text: string, expert: Expert, settings: Settings, signal?: AbortSignal, laugh = false): Promise<Blob> {
   const spoken = forSpeech(text);
   if (!spoken) throw new BrainError("Nothing to read aloud.");
   const fish = fishVoice(expert, settings);
   const service = fish ? "fish.audio" : "OpenAI";
+  const line = laugh ? `[laughing] ${spoken}` : spoken;
   try {
     const answer = fish
       ? await post({
           url: FISH_SPEECH,
           headers: { authorization: `Bearer ${settings.fishKey.trim()}`, model: FISH_MODEL },
-          json: { text: spoken, format: "mp3", mp3_bitrate: 192, latency: "low", temperature: 0.78, reference_id: fish },
+          json: { text: line, format: "mp3", mp3_bitrate: 192, latency: "low", temperature: 0.78, reference_id: fish },
           want: "blob",
           signal,
         })
       : await post({
           url: OPENAI_SPEECH,
           headers: { authorization: `Bearer ${settings.key}` },
-          json: { model: SPEECH_MODEL, voice: expert.voice.openai, input: spoken, instructions: expert.voice.style, response_format: "mp3" },
+          json: { model: SPEECH_MODEL, voice: expert.voice.openai, input: spoken, instructions: laugh ? `${expert.voice.style} Start with a short laugh, then speak.` : expert.voice.style, response_format: "mp3" },
           want: "blob",
           signal,
         });

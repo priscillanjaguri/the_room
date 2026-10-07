@@ -2,6 +2,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { byId, EXPERTS, type Expert } from "./experts";
 import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
+import { emojiOf, grouped, REACTIONS, setReaction } from "./reacts";
 import { note, reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
 import { fishVoiceIn, hear, openMicSettings, Recorder, say, Speaker } from "./voice";
@@ -34,6 +35,35 @@ function Avatar({ expert, size = 34 }: { expert: Expert; size?: number }) {
 }
 
 const reason = (error: unknown) => (error instanceof BrainError ? error.message : error instanceof Error ? error.message : String(error));
+
+const whoReacted = (id: string) => (id === "you" ? "You" : byId(id)?.short ?? id);
+
+function ReactBar({ message, onReact, open, onOpen }: { message: Message; onReact: (emoji: string) => void; open: boolean; onOpen: () => void }) {
+  const pills = grouped(message.reactions);
+  const mine = message.reactions?.find((one) => one.from === "you")?.emoji;
+  return (
+    <div className="reacts">
+      {pills.map((pill) => (
+        <button key={pill.emoji} className={mine === pill.emoji ? "react on" : "react"} title={pill.from.map(whoReacted).join(", ")} onClick={() => onReact(pill.emoji)}>
+          {pill.emoji}
+          {pill.from.length > 1 ? <span>{pill.from.length}</span> : null}
+        </button>
+      ))}
+      <button className="react add" onClick={onOpen} aria-label="React">
+        +
+      </button>
+      {open && (
+        <div className="react-tray">
+          {REACTIONS.map((one) => (
+            <button key={one.id} className={mine === one.emoji ? "react on" : "react"} onClick={() => onReact(one.emoji)}>
+              {one.emoji}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Setup({ settings, onDone }: { settings: Settings; onDone: (settings: Settings) => void }) {
   const [key, setKey] = useState(settings.key);
@@ -278,6 +308,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const fromMic = useRef(false);
   /// Message ids whose text is held back until the voice actually starts, so they don't type first.
   const [held, setHeld] = useState<Set<string>>(() => new Set());
+  const [tray, setTray] = useState<string | null>(null);
   const unhold = (id: string) =>
     setHeld((all) => {
       if (!all.has(id)) return all;
@@ -347,12 +378,12 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     );
 
   /// Reads a reply aloud after anything already playing. The audio is kept so a replay is free.
-  const speak = (message: Message, use = settings, signal?: AbortSignal) => {
+  const speak = (message: Message, use = settings, signal?: AbortSignal, laugh = false) => {
     const expert = byId(message.from);
     if (!expert) return;
     let audio = spoken.current.get(message.id);
     if (!audio) {
-      audio = say(message.text, expert, use, signal);
+      audio = say(message.text, expert, use, signal, laugh);
       spoken.current.set(message.id, audio);
       audio.catch((problem) => {
         spoken.current.delete(message.id);
@@ -437,13 +468,16 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         const said = await reply(expert, current, settings, controller.signal, (soFar) => {
           if (!settings.speak) setLive({ who: expert.id, text: soFar });
         });
-        const message: Message = { id, from: expert.id, text: said || "...", at: Date.now() };
+        const targetMsg = [...current].reverse().find((known) => known.from !== "error" && known.from !== expert.id);
+        const emoji = said.react ? emojiOf(said.react) : "";
+        if (emoji && targetMsg) current = current.map((known) => (known.id === targetMsg.id ? { ...known, reactions: setReaction(known.reactions, expert.id, emoji) } : known));
+        const message: Message = { id, from: expert.id, text: said.text || "...", at: Date.now() };
         current = [...current, message];
         setMessages(current);
         setLive(null);
-        if (settings.speak && said) {
+        if (settings.speak && said.text) {
           setHeld((all) => new Set(all).add(id));
-          speak(message, settings, controller.signal);
+          speak(message, settings, controller.signal, said.react === "laugh");
           const audio = spoken.current.get(id);
           if (audio) await audio.catch(() => {});
         }
@@ -488,6 +522,11 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const ask = (expert: Expert) => {
     setTarget(expert.id);
     box.current?.focus();
+  };
+
+  const reactTo = (id: string, emoji: string) => {
+    setMessages((all) => all.map((message) => (message.id === id ? { ...message, reactions: setReaction(message.reactions, "you", emoji) } : message)));
+    setTray(null);
   };
 
   const again = () => {
@@ -552,7 +591,15 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
           </div>
         )}
         {messages.map((message) => {
-          if (message.from === "you") return <div key={message.id} className="bubble mine">{message.text}</div>;
+          if (message.from === "you")
+            return (
+              <div key={message.id} className="said mine-wrap">
+                <div>
+                  <div className="bubble mine">{message.text}</div>
+                  <ReactBar message={message} onReact={(emoji) => reactTo(message.id, emoji)} open={tray === message.id} onOpen={() => setTray(tray === message.id ? null : message.id)} />
+                </div>
+              </div>
+            );
           if (message.from === "error") return <div key={message.id} className="problem">{message.text}</div>;
           const expert = byId(message.from);
           if (!expert) return null;
@@ -567,6 +614,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
                   {held.has(message.id) ? <span className="dots"><i /><i /><i /></span> : message.text}
                   {speaking === message.id && <span className="wave" style={{ color: expert.colour }}><i /><i /><i /><i /></span>}
                 </div>
+                <ReactBar message={message} onReact={(emoji) => reactTo(message.id, emoji)} open={tray === message.id} onOpen={() => setTray(tray === message.id ? null : message.id)} />
                 <button className="ask" onClick={() => ask(expert)}>
                   Ask {expert.short}
                 </button>
