@@ -12,6 +12,12 @@ export interface Settings {
   key: string;
   model: string;
   name: string;
+  /// Replies are read aloud.
+  speak: boolean;
+  /// Optional: lets an expert speak in a fish.audio voice instead of OpenAI's.
+  fishKey: string;
+  /// A fish.audio voice link or id per expert id.
+  voices: Record<string, string>;
 }
 
 const SETTINGS = "room.settings";
@@ -41,7 +47,7 @@ export function loadSettings(): Settings {
   const model = MODELS.some(([id]) => id === saved.model) ? saved.model! : DEFAULT_MODEL;
   // An Anthropic key from the first version of the app means nothing to OpenAI.
   const key = saved.key?.startsWith("sk-ant-") ? "" : saved.key ?? "";
-  return { key, model, name: saved.name ?? "" };
+  return { key, model, name: saved.name ?? "", speak: saved.speak ?? true, fishKey: saved.fishKey ?? "", voices: saved.voices ?? {} };
 }
 
 export const saveSettings = (settings: Settings) => write(SETTINGS, settings);

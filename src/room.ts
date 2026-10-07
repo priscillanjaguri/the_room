@@ -32,6 +32,7 @@ function system(expert: Expert, settings: Settings): string {
     `- Stay fully in character: talk the way ${expert.name} talks, with their humour and turns of phrase, while giving genuinely useful, expert advice.`,
     "- This is a phone chat. Keep it to two to four short sentences unless you are asked for more.",
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
+    `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself and never write lines for the others. You can agree with, challenge or answer the others by name.",
     "- Do not start your reply with your own name.",
   ].join("\n");

@@ -412,9 +412,142 @@ main {
   color: var(--on-primary);
 }
 
-.send.stop {
+.send.stop,
+.send.cancel {
   background: var(--surface-2);
   color: var(--text);
+}
+
+.send:disabled {
+  opacity: 0.5;
+}
+
+.write.recording {
+  align-items: center;
+}
+
+.listening {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 22px;
+  border: 1px solid var(--primary);
+  background: var(--surface);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rec {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: blink 1.2s infinite ease-in-out;
+}
+
+.notice {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 13.5px;
+}
+
+.icon.muted {
+  opacity: 0.55;
+}
+
+/* Voices */
+
+.theirs {
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.wave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.wave i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  animation: wave 0.9s infinite ease-in-out;
+}
+
+.wave i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.wave i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.wave i:nth-child(4) {
+  animation-delay: 0.45s;
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+}
+
+.toggle input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+}
+
+.toggle span {
+  color: var(--text) !important;
+  font-size: 15px !important;
+}
+
+.hint {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.voices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.voice-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.voice-head span {
+  flex: 1;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* Settings */

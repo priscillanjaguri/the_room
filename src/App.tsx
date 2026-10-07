@@ -4,6 +4,11 @@ import { BrainError, check, KEY_PAGE, MODELS } from "./openai";
 import { faceFrom, loadPhotos, PhotosContext, savePhotos, type Photos } from "./photos";
 import { reply, speakers, type Target } from "./room";
 import { loadMessages, loadSettings, newId, saveMessages, saveSettings, type Message, type Settings } from "./store";
+import { fishVoiceIn, hear, Recorder, say, Speaker } from "./voice";
+
+/// A recording stops by itself after this, so a forgotten mic doesn't run up a bill.
+const LONGEST_RECORDING = 120;
+const SAMPLE = "Hello. This is how I sound in the room.";
 
 const SUGGESTIONS = [
   "Everyone: should I quit my job to start a company?",
@@ -100,6 +105,22 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
   const [shown, setShown] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  const [sampling, setSampling] = useState("");
+  const [voiceStatus, setVoiceStatus] = useState("");
+
+  const sample = async (expert: Expert) => {
+    setSampling(expert.id);
+    setVoiceStatus("");
+    try {
+      const audio = new Audio(URL.createObjectURL(await say(SAMPLE, expert, { ...draft, key: draft.key.trim() })));
+      audio.onended = () => URL.revokeObjectURL(audio.src);
+      await audio.play();
+    } catch (problem) {
+      setVoiceStatus(reason(problem));
+    } finally {
+      setSampling("");
+    }
+  };
 
   const test = async () => {
     setChecking(true);
@@ -145,7 +166,7 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
         {status && <p className={status.ok ? "ok-text" : "error-text"}>{status.text}</p>}
         <div className="row">
           <button className="ghost" disabled={checking || !draft.key.trim()} onClick={() => void test()}>{checking ? "Testing..." : "Test key"}</button>
-          <button className="primary" disabled={!draft.key.trim()} onClick={() => onSave({ ...draft, key: draft.key.trim() })}>Save</button>
+          <button className="primary" disabled={!draft.key.trim()} onClick={() => onSave({ ...draft, key: draft.key.trim(), fishKey: draft.fishKey.trim() })}>Save</button>
         </div>
         <hr />
         <div className="people">
@@ -171,6 +192,36 @@ function SettingsPage({ settings, photos, onSave, onClose, onClear, onPhoto }: S
           ))}
         </div>
         {photoError && <p className="error-text">{photoError}</p>}
+        <hr />
+        <label className="toggle">
+          <input type="checkbox" checked={draft.speak} onChange={(event) => setDraft({ ...draft, speak: event.target.checked })} />
+          <span>Read replies aloud</span>
+        </label>
+        <label>
+          <span>fish.audio API key (optional)</span>
+          <input className="field" type="password" autoComplete="off" spellCheck={false} placeholder="For fish.audio voices" value={draft.fishKey} onChange={(event) => setDraft({ ...draft, fishKey: event.target.value })} />
+        </label>
+        <p className="hint">
+          Without one, everyone speaks in an OpenAI voice. To use fish.audio, sign in at <a href="https://fish.audio/app/api-keys/">fish.audio</a>, create an API key, then open any voice on fish.audio and paste its link under an expert below.
+        </p>
+        <div className="voices">
+          {EXPERTS.map((expert) => {
+            const link = draft.voices[expert.id] ?? "";
+            const fish = draft.fishKey.trim() && fishVoiceIn(link);
+            return (
+              <div key={expert.id} className="voice">
+                <div className="voice-head">
+                  <b style={{ color: expert.colour }}>{expert.short}</b>
+                  <span>{fish ? "fish.audio voice" : link.trim() && !fishVoiceIn(link) ? "Not a fish.audio voice link" : `OpenAI "${expert.voice.openai}" voice`}</span>
+                  <button className="link" disabled={!!sampling || !draft.key.trim()} onClick={() => void sample(expert)}>{sampling === expert.id ? "Loading..." : "Hear"}</button>
+                </div>
+                <input className="field" spellCheck={false} placeholder="fish.audio voice link (optional)" value={link} onChange={(event) => setDraft({ ...draft, voices: { ...draft.voices, [expert.id]: event.target.value } })} />
+              </div>
+            );
+          })}
+        </div>
+        {voiceStatus && <p className="error-text">{voiceStatus}</p>}
+        <button className="primary" disabled={!draft.key.trim()} onClick={() => onSave({ ...draft, key: draft.key.trim(), fishKey: draft.fishKey.trim() })}>Save</button>
         <div className="credits">
           <span>Pictures</span>
           {EXPERTS.map((expert) => (
@@ -224,9 +275,33 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const pinned = useRef(true);
+  const [speaking, setSpeaking] = useState<string | null>(null);
+  const [speaker] = useState(() => new Speaker(setSpeaking));
+  const spoken = useRef(new Map<string, Promise<Blob>>());
+  const [notice, setNotice] = useState("");
+  const [recorder] = useState(() => new Recorder());
+  const [mic, setMic] = useState<"off" | "starting" | "on" | "hearing">("off");
+  const [seconds, setSeconds] = useState(0);
+  const autoStop = useRef(() => {});
 
   useEffect(() => saveMessages(messages), [messages]);
   useEffect(() => saveSettings(settings), [settings]);
+  useEffect(() => () => speaker.stop(), [speaker]);
+
+  useEffect(() => {
+    if (mic !== "on") return;
+    setSeconds(0);
+    const started = Date.now();
+    const tick = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - started) / 1000);
+      setSeconds(elapsed);
+      if (elapsed >= LONGEST_RECORDING) {
+        window.clearInterval(tick);
+        autoStop.current();
+      }
+    }, 250);
+    return () => window.clearInterval(tick);
+  }, [mic]);
 
   useLayoutEffect(() => {
     const element = list.current;
@@ -250,9 +325,66 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         onPhoto={onPhoto}
         onClose={() => setPage("room")}
         onSave={(next) => (setSettings(next), setPage("room"))}
-        onClear={() => (setMessages([]), setRetry(null), setPage("room"))}
+        onClear={() => (speaker.stop(), spoken.current.clear(), setMessages([]), setRetry(null), setPage("room"))}
       />
     );
+
+  /// Reads a reply aloud after anything already playing. The audio is kept so a replay is free.
+  const speak = (message: Message, use = settings) => {
+    const expert = byId(message.from);
+    if (!expert) return;
+    let audio = spoken.current.get(message.id);
+    if (!audio) {
+      audio = say(message.text, expert, use);
+      spoken.current.set(message.id, audio);
+      audio.catch((problem) => {
+        spoken.current.delete(message.id);
+        setNotice(reason(problem));
+      });
+    }
+    speaker.queue(message.id, audio);
+  };
+
+  /// Tapping a reply plays it, or stops it if it is the one playing.
+  const replay = (message: Message) => {
+    const playing = speaking === message.id;
+    speaker.stop();
+    if (!playing) speak(message);
+  };
+
+  const toggleVoice = () => {
+    if (settings.speak) speaker.stop();
+    setSettings({ ...settings, speak: !settings.speak });
+  };
+
+  const listen = async () => {
+    speaker.stop();
+    setNotice("");
+    setMic("starting");
+    try {
+      await recorder.start();
+      setMic("on");
+    } catch (problem) {
+      setMic("off");
+      setNotice(reason(problem));
+    }
+  };
+
+  const finish = async (keep: boolean) => {
+    const recording = await recorder.stop(keep);
+    if (!recording) return setMic("off");
+    setMic("hearing");
+    try {
+      const words = await hear(recording, settings);
+      if (words) send(words);
+      else setNotice("Didn't catch that. Try again a little closer to the phone.");
+    } catch (problem) {
+      setNotice(reason(problem));
+    } finally {
+      setMic("off");
+    }
+  };
+  autoStop.current = () => void finish(true);
 
   /// Runs the experts in turn; each one sees what the ones before it said.
   const run = async (who: string[] | null, thread: Message[], text: string, chosen: Target) => {
@@ -274,6 +406,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         const message: Message = { id: newId(), from: expert.id, text: said || "...", at: Date.now() };
         current = [...current, message];
         setMessages(current);
+        if (settings.speak && said) speak(message);
         queue = queue.slice(1);
       }
     } catch (problem) {
@@ -292,6 +425,8 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
     const words = text.trim();
     if (!words || live) return;
     const thread = [...messages, { id: newId(), from: "you", text: words, at: Date.now() }];
+    speaker.stop();
+    setNotice("");
     setMessages(thread);
     setDraft("");
     void run(null, thread, words, target);
@@ -305,6 +440,7 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
   };
 
   const liveExpert = live?.who ? byId(live.who) : undefined;
+  const speakingExpert = speaking ? byId(messages.find((message) => message.id === speaking)?.from ?? "") : undefined;
   const chips: [Target, string][] = [["auto", "Room picks"], ["everyone", "Everyone"], ...EXPERTS.map((expert): [Target, string] => [expert.id, expert.short])];
 
   return (
@@ -317,8 +453,18 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         </div>
         <div className="title">
           <h2>The room</h2>
-          <span>{live ? (liveExpert ? `${liveExpert.short} is typing...` : "choosing who answers...") : "Rick, Harvey, Jack, Steve"}</span>
+          <span>{live ? (liveExpert ? `${liveExpert.short} is typing...` : "choosing who answers...") : speakingExpert ? `${speakingExpert.short} is speaking...` : "Rick, Harvey, Jack, Steve"}</span>
         </div>
+        <button className={settings.speak ? "icon" : "icon muted"} onClick={toggleVoice} aria-label={settings.speak ? "Turn voices off" : "Turn voices on"}>
+          <svg viewBox="0 0 24 24" width="22" height="22">
+            <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4v-5Z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+            {settings.speak ? (
+              <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            ) : (
+              <path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            )}
+          </svg>
+        </button>
         <button className="icon" onClick={() => setPage("settings")} aria-label="Settings">
           <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-2.5a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1l-.4-2.6h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.7 1.7 1l.4 2.6h4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg>
         </button>
@@ -344,9 +490,10 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
           return (
             <div key={message.id} className="said">
               <Avatar expert={expert} />
-              <div className="bubble theirs">
+              <div className={speaking === message.id ? "bubble theirs speaking" : "bubble theirs"} style={speaking === message.id ? { borderColor: expert.colour } : undefined} onClick={() => replay(message)}>
                 <b style={{ color: expert.colour }}>{expert.name}</b>
                 {message.text}
+                {speaking === message.id && <span className="wave" style={{ color: expert.colour }}><i /><i /><i /><i /></span>}
               </div>
             </div>
           );
@@ -367,6 +514,11 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       </div>
 
       <footer className="composer">
+        {notice && (
+          <div className="notice" onClick={() => setNotice("")}>
+            {notice}
+          </div>
+        )}
         <div className="chips">
           {chips.map(([id, label]) => {
             const expert = byId(id);
@@ -377,6 +529,26 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
             );
           })}
         </div>
+        {mic === "on" || mic === "hearing" ? (
+          <div className="write recording">
+            <button className="send cancel" disabled={mic === "hearing"} onClick={() => void finish(false)} aria-label="Cancel">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
+            </button>
+            <div className="listening">
+              {mic === "on" ? (
+                <>
+                  <span className="rec" />
+                  <span>Listening {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</span>
+                </>
+              ) : (
+                <span>Writing down what you said...</span>
+              )}
+            </div>
+            <button className="send" disabled={mic === "hearing"} onClick={() => void finish(true)} aria-label="Send what I said">
+              <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 12l16-8-6 16-2.5-6.5L4 12Z" fill="currentColor" /></svg>
+            </button>
+          </div>
+        ) : (
         <div className="write">
           <textarea
             ref={box}
@@ -392,15 +564,20 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
             }}
           />
           {live ? (
-            <button className="send stop" onClick={() => stop.current?.abort()} aria-label="Stop">
+            <button className="send stop" onClick={() => (stop.current?.abort(), speaker.stop())} aria-label="Stop">
               <svg viewBox="0 0 24 24" width="18" height="18"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></svg>
             </button>
-          ) : (
-            <button className="send" disabled={!draft.trim()} onClick={() => send()} aria-label="Send">
+          ) : draft.trim() ? (
+            <button className="send" onClick={() => send()} aria-label="Send">
               <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 12l16-8-6 16-2.5-6.5L4 12Z" fill="currentColor" /></svg>
+            </button>
+          ) : (
+            <button className="send" disabled={mic === "starting"} onClick={() => void listen()} aria-label="Talk">
+              <svg viewBox="0 0 24 24" width="20" height="20"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             </button>
           )}
         </div>
+        )}
       </footer>
     </main>
   );
