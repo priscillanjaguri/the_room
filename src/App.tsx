@@ -471,7 +471,8 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
         await wait(260);
       }
     };
-    const gather = (target: Message) => feelings(target, current, settings, controller.signal).catch(() => [] as { from: string; react: string }[]);
+    let present = who ?? EXPERTS.map((one) => one.id);
+    const gather = (target: Message) => feelings(target, current, settings, controller.signal, present).catch(() => [] as { from: string; react: string }[]);
     let watching = "";
     let felt: { from: string; react: string }[] = [];
     const write = (expert: Expert) => {
@@ -479,23 +480,24 @@ function Room({ photos, onPhoto }: { photos: Photos; onPhoto: SettingsProps["onP
       const id = newId();
       return reply(expert, thread, settings, controller.signal, (soFar) => {
         if (!settings.speak && watching === expert.id) setLive({ who: expert.id, text: soFar });
-      }).then((said): Message => ({ id, from: expert.id, text: said.text || "...", at: Date.now() }));
+      }, present).then((said): Message => ({ id, from: expert.id, text: said.text || "...", at: Date.now() }));
     };
     try {
+      if (!who) {
+        setLive({ who: "", text: "" });
+        const round = await speakers(chosen, text, thread, settings, controller.signal);
+        queue = round.now;
+        later = round.later;
+        present = queue;
+      }
       const last = current.at(-1);
-      if (!who && last && last.from !== "error") {
+      if (last && last.from !== "error") {
         void gather(last)
           .then((incoming) => {
             felt = incoming;
             return stamp(last, incoming);
           })
           .catch(() => {});
-      }
-      if (!who) {
-        setLive({ who: "", text: "" });
-        const round = await speakers(chosen, text, thread, settings, controller.signal);
-        queue = round.now;
-        later = round.later;
       }
       let nextWrite: Promise<Message> | null = null;
       if (queue[0]) {

@@ -114,19 +114,31 @@ function chatModel(settings: Settings, asked: string): { model: string; effort: 
   return { model: QUICK_MODEL, effort: "minimal" };
 }
 
-function system(expert: Expert, settings: Settings, messages: Message[]): string {
-  const others = EXPERTS.filter((one) => one.id !== expert.id)
+function seated(present?: string[]): Expert[] {
+  if (!present?.length) return EXPERTS;
+  const here = EXPERTS.filter((one) => present.includes(one.id));
+  return here.length ? here : EXPERTS;
+}
+
+function system(expert: Expert, settings: Settings, messages: Message[], present?: string[]): string {
+  const here = seated(present);
+  const others = here
+    .filter((one) => one.id !== expert.id)
     .map((one) => `${one.name} (${one.craft})`)
     .join(", ");
-  const previous = lastSpeaker(messages.filter((message) => message.from !== expert.id));
-  const opener = firstAfterAsk(messages);
-  const reacting = previous && messages.at(-1)?.from !== "you";
+  const seats = here.length + 1;
+  const previous = lastSpeaker(messages.filter((message) => message.from !== expert.id && here.some((one) => one.id === message.from)));
+  const opener = firstAfterAsk(messages.filter((message) => message.from === "you" || here.some((one) => one.id === message.from)));
+  const last = messages.at(-1);
+  const reacting = previous && last && last.from !== "you" && here.some((one) => one.id === last.from);
   const asked = lastAsk(messages);
   const deeper = wantsMore(asked);
   const song = wantsSong(asked);
   return [
     `You are ${expert.name}, whose craft is ${expert.craft}, in a private group chat called "The room" on ${you(settings)}'s phone.`,
-    `Also at this table: ${others}, and ${you(settings)}, who goes by ${pris(settings)}. Five people. Talk to whoever the line is actually for.`,
+    others
+      ? `Also at this table right now: ${others}, and ${you(settings)}, who goes by ${pris(settings)}. ${seats} people in this round. Do not talk to anyone who is not here.`
+      : `${you(settings)}, who goes by ${pris(settings)}, is at the table with you. Nobody else is in this round.`,
     `Know ${pris(settings)}'s name. Do not start replies with it. Only say it when you are really talking to her — a decision, a question back, or telling her apart from someone else.`,
     expert.personality,
     `Your job in this room: ${expert.job} Bring that lens only when it helps the question on the table. If it does not apply, stay in this conversation as yourself anyway. Do not hijack the topic to your specialty.`,
@@ -202,7 +214,7 @@ export interface Said {
 }
 
 /// One expert's reply to the thread so far, streamed through `onText`.
-export async function reply(expert: Expert, messages: Message[], settings: Settings, signal: AbortSignal, onText: (text: string) => void): Promise<Said> {
+export async function reply(expert: Expert, messages: Message[], settings: Settings, signal: AbortSignal, onText: (text: string) => void, present?: string[]): Promise<Said> {
   const previous = lastSpeaker(messages);
   const opener = firstAfterAsk(messages);
   const asked = lastAsk(messages);
@@ -222,7 +234,7 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
     model: pick.model,
     effort: pick.effort,
     fallback: pick.fallback,
-    system: system(expert, settings, messages),
+    system: system(expert, settings, messages, present),
     prompt,
     maxTokens: song || deeper ? LONG_TOKENS : SHORT_TOKENS,
     signal,
@@ -235,8 +247,8 @@ export async function reply(expert: Expert, messages: Message[], settings: Setti
 const FEEL = /\b(laugh|sad|up|down|party|none)\b/i;
 
 /// Who in the room taps a WhatsApp reaction on this bubble. Any subset, including nobody.
-export async function feelings(message: Message, messages: Message[], settings: Settings, signal: AbortSignal): Promise<{ from: string; react: string }[]> {
-  const others = EXPERTS.filter((one) => one.id !== message.from);
+export async function feelings(message: Message, messages: Message[], settings: Settings, signal: AbortSignal, present?: string[]): Promise<{ from: string; react: string }[]> {
+  const others = seated(present).filter((one) => one.id !== message.from);
   if (!others.length || message.from === "error") return [];
   const who = message.from === "you" ? you(settings) : byId(message.from)?.name ?? message.from;
   try {
@@ -244,8 +256,8 @@ export async function feelings(message: Message, messages: Message[], settings: 
       key: settings.key,
       model: QUICK_MODEL,
       system:
-        "You pick WhatsApp reactions for a group chat. Not everyone reacts. One, two, or none is normal. All four is rare. Each person who would sit it out says none. Reply with one line per person: Name laugh, Name sad, Name up, Name down, Name party, or Name none. Nothing else.",
-      prompt: `The people who can react:\n${others.map((one) => `${one.short}: ${one.craft}`).join("\n")}\n\n${who} just said:\n${message.text}\n\nRecent chat:\n${transcript(messages.slice(-8), settings)}\n\nWho actually taps an emoji?`,
+        "You pick WhatsApp reactions for a group chat. Only the people listed are in the room. Not everyone reacts. One, two, or none is normal. Each person who would sit it out says none. Reply with one line per person: Name laugh, Name sad, Name up, Name down, Name party, or Name none. Nothing else.",
+      prompt: `The people in the room who can react:\n${others.map((one) => `${one.short}: ${one.craft}`).join("\n")}\n\n${who} just said:\n${message.text}\n\nRecent chat:\n${transcript(messages.slice(-8), settings)}\n\nWho actually taps an emoji? Only these people.`,
       maxTokens: 80,
       signal,
     });
