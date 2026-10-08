@@ -159,6 +159,7 @@ function system(expert: Expert, settings: Settings, messages: Message[], present
         ? `- ${pris(settings)} asked you to explain. At most four short sentences. Stop at four even if there is more to say.`
         : `- One or two short lines. Do not explain unless asked.`,
     "- Plain text only: no markdown, headings or bullet lists. A rare short action in asterisks is fine.",
+    "- Never use an em dash. A comma, a hyphen, or a new sentence instead.",
     `- Use an emoji now and then where ${expert.name} naturally would, one or two at most, never in every reply.`,
     "- Speak only as yourself. You may ask one of the others a question by name; do not write their answer.",
     `- Do not start your reply with your own name, or with ${pris(settings)}.`,
@@ -176,7 +177,11 @@ function clean(text: string, expert: Expert, settings?: Settings): string {
   const names = [expert.name, expert.short, "Captain " + expert.short, "Captain Jack Sparrow", ...hers]
     .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
-  return text.replace(new RegExp(`^\\s*(?:(?:hey|hi)\\s+)?(${names})\\s*[,:!]\\s*`, "i"), "").trim();
+  return text
+    .replace(new RegExp(`^\\s*(?:(?:hey|hi)\\s+)?(${names})\\s*[,:!]\\s*`, "i"), "")
+    .replace(/\s*[—–]\s*/g, ", ")
+    .replace(/\s+,/g, ",")
+    .trim();
 }
 
 /// Hard cap so a long-winded reply cannot run past the spoken length we asked for.
